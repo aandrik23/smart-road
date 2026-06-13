@@ -41,9 +41,9 @@ The canonical product and technical requirements are in:
 ## Summary Snapshot
 
 - Total tickets: `8`
-- Done: `1`
+- Done: `2`
 - Partially Implemented: `0`
-- Not Started: `7`
+- Not Started: `6`
 
 ---
 
@@ -61,7 +61,7 @@ audit sign-off. Maps to SDS §§3–11 milestones.
 | # | Status | Ticket | Track | Description | Depends on | Blocks |
 |---|--------|--------|-------|-------------|------------|--------|
 | 1 | [x] | **A1** | A | `types.rs` contract — all `pub const`, enums (`Direction`, `Route`, `VehicleState`, `Speed`), structs (`Vec2`, `Vehicle`, `IntersectionSlot`, `Stats`); module scaffold (stub `vehicle`/`intersection`/`renderer`/`input`/`stats`); `main.rs` window + event-pump + loop that clears to background and exits on Esc (SDS §3, §2) | None | A2, B1, C1, C2 |
-| 2 | [ ] | **A2** | A | Waypoint path pre-computation — `build_path_map() -> HashMap<(Direction, Route), Vec<Vec2>>` covering all 12 `(Direction, Route)` pairs using lane geometry from SDS §4.1/§4.2; all paths start and end off-screen; `#[cfg(test)]` assertions on first/last waypoints for ≥ 4 paths (SDS §4, §5) | A1 | B1, B2, C2 |
+| 2 | [x] | **A2** | A | Waypoint path pre-computation — `build_path_map() -> HashMap<(Direction, Route), Vec<Vec2>>` covering all 12 `(Direction, Route)` pairs using lane geometry from SDS §4.1/§4.2; all paths start and end off-screen; `#[cfg(test)]` assertions on first/last waypoints for ≥ 4 paths (SDS §4, §5) | A1 | B1, B2, C2 |
 
 ### Wave 2 — Core Modules (P1)
 

@@ -109,11 +109,11 @@ The loop must already have placeholder slots for `handle_events`, `update`, and
 `draw` so wiring (C3) is a drop-in, not a rewrite.
 
 #### Verification gate
-- [ ] `cargo build` succeeds with zero errors
-- [ ] `cargo clippy -- -D warnings` passes
-- [ ] Window opens, shows a uniform dark-gray canvas, exits on Esc
-- [ ] All types from SDS §3 are present and public in `types.rs`
-- [ ] No type or constant is defined in any file other than `types.rs`
+- [x] `cargo build` succeeds with zero errors
+- [x] `cargo clippy -- -D warnings` passes
+- [x] Window opens, shows a uniform dark-gray canvas, exits on Esc
+- [x] All types from SDS §3 are present and public in `types.rs`
+- [x] No type or constant is defined in any file other than `types.rs`
 
 ---
 
@@ -156,10 +156,10 @@ Corners and turns need intermediate points; straight segments can be coarser.
 - Assert that no path is empty and no two consecutive waypoints are identical.
 
 #### Verification gate
-- [ ] `cargo test` passes with all path-map assertions green
-- [ ] All 12 paths are present in the returned map
-- [ ] First/last waypoints of every path are outside canvas bounds
-- [ ] No path geometry is recomputed after startup (no allocation inside the game loop)
+- [x] `cargo test` passes with all path-map assertions green
+- [x] All 12 paths are present in the returned map
+- [x] First/last waypoints of every path are outside canvas bounds
+- [x] No path geometry is recomputed after startup (no allocation inside the game loop)
 
 ---
 
