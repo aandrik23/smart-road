@@ -1,23 +1,120 @@
-use std::collections::HashMap;
-use crate::types::{Direction, Route, Vec2};
+use std::collections::{HashMap, HashSet};
+use crate::types::{
+    Direction, Route, Vec2, Vehicle,
+    INTER_X, INTER_Y, INTER_W, INTER_H, LANE_WIDTH, TRIGGER_DIST,
+};
 
-pub struct IntersectionManager;
+pub struct IntersectionManager {
+    conflicts: [[bool; 12]; 12],
+    active:    HashMap<u32, (Direction, Route)>,
+}
+
+fn path_index(dir: Direction, route: Route) -> usize {
+    let d = match dir {
+        Direction::North => 0,
+        Direction::South => 1,
+        Direction::West  => 2,
+        Direction::East  => 3,
+    };
+    let r = match route {
+        Route::Right    => 0,
+        Route::Straight => 1,
+        Route::Left     => 2,
+    };
+    d * 3 + r
+}
+
+fn rasterize_segment(a: Vec2, b: Vec2, cells: &mut HashSet<(u8, u8)>) {
+    let dx = b.x - a.x;
+    let dy = b.y - a.y;
+    let dist = (dx * dx + dy * dy).sqrt();
+    let steps = (dist / 5.0).ceil() as u32;
+    for i in 0..=steps {
+        let t = if steps == 0 { 0.0 } else { i as f32 / steps as f32 };
+        let x = a.x + t * dx;
+        let y = a.y + t * dy;
+        if (INTER_X..INTER_X + INTER_W).contains(&x)
+            && (INTER_Y..INTER_Y + INTER_H).contains(&y)
+        {
+            let col = ((x - INTER_X) / LANE_WIDTH) as u8;
+            let row = ((y - INTER_Y) / LANE_WIDTH) as u8;
+            cells.insert((col, row));
+        }
+    }
+}
+
+fn build_conflict_table() -> [[bool; 12]; 12] {
+    let path_map = build_path_map();
+    let mut cell_sets: Vec<HashSet<(u8, u8)>> = (0..12).map(|_| HashSet::new()).collect();
+
+    for ((dir, route), path) in &path_map {
+        let idx = path_index(*dir, *route);
+        for segment in path.windows(2) {
+            rasterize_segment(segment[0], segment[1], &mut cell_sets[idx]);
+        }
+    }
+
+    let mut conflicts = [[false; 12]; 12];
+    for i in 0..12 {
+        for j in (i + 1)..12 {
+            if !cell_sets[i].is_disjoint(&cell_sets[j]) {
+                conflicts[i][j] = true;
+                conflicts[j][i] = true;
+            }
+        }
+    }
+    conflicts
+}
 
 impl IntersectionManager {
     pub fn new() -> Self {
-        Self
+        IntersectionManager {
+            conflicts: build_conflict_table(),
+            active: HashMap::new(),
+        }
     }
 
-    pub fn request_reservation(&mut self, _id: u32, _dir: Direction, _route: Route) -> bool {
-        todo!("B1: reservation grant/deny with conflict table")
+    pub fn request_reservation(&mut self, id: u32, dir: Direction, route: Route) -> bool {
+        if self.active.contains_key(&id) {
+            return true;
+        }
+        let req_idx = path_index(dir, route);
+        for (a_dir, a_route) in self.active.values() {
+            if self.conflicts[req_idx][path_index(*a_dir, *a_route)] {
+                return false;
+            }
+        }
+        self.active.insert(id, (dir, route));
+        true
     }
 
-    pub fn release_reservation(&mut self, _id: u32) {
-        todo!("B1: release after full intersection clearance")
+    pub fn release_reservation(&mut self, id: u32) {
+        self.active.remove(&id);
     }
 
-    pub fn is_in_trigger_zone(&self, _distance_to_intersection: f32) -> bool {
-        todo!("B1: 200 px trigger zone check")
+    pub fn is_in_trigger_zone(&self, vehicle: &Vehicle) -> bool {
+        match vehicle.direction {
+            Direction::South => {
+                vehicle.pos.y > INTER_Y + INTER_H
+                    && vehicle.pos.y <= INTER_Y + INTER_H + TRIGGER_DIST
+            }
+            Direction::North => {
+                vehicle.pos.y < INTER_Y
+                    && vehicle.pos.y >= INTER_Y - TRIGGER_DIST
+            }
+            Direction::West => {
+                vehicle.pos.x < INTER_X
+                    && vehicle.pos.x >= INTER_X - TRIGGER_DIST
+            }
+            Direction::East => {
+                vehicle.pos.x > INTER_X + INTER_W
+                    && vehicle.pos.x <= INTER_X + INTER_W + TRIGGER_DIST
+            }
+        }
+    }
+
+    pub fn active_count(&self) -> usize {
+        self.active.len()
     }
 }
 
@@ -175,6 +272,25 @@ pub fn build_path_map() -> HashMap<(Direction, Route), Vec<Vec2>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::VehicleState;
+
+    fn make_vehicle(dir: Direction, x: f32, y: f32) -> Vehicle {
+        Vehicle {
+            id: 99,
+            direction: dir,
+            route: Route::Straight,
+            state: VehicleState::Approaching,
+            pos: Vec2 { x, y },
+            velocity: 0.0,
+            target_vel: 0.0,
+            angle_deg: 0.0,
+            path: vec![],
+            path_index: 0,
+            entry_time_ms: 0,
+            exit_time_ms: 0,
+            distance_travelled: 0.0,
+        }
+    }
 
     fn is_off_screen(p: &Vec2) -> bool {
         p.x < 0.0 || p.x > 900.0 || p.y < 0.0 || p.y > 900.0
@@ -272,5 +388,116 @@ mod tests {
         let p = &map[&(Direction::East, Route::Right)];
         assert!(p[0].x > 900.0, "East-Right must start right of screen");
         assert!(p.last().unwrap().y > 900.0, "East-Right must exit below screen");
+    }
+
+    #[test]
+    fn path_index_all_12_unique_and_in_range() {
+        let dirs   = [Direction::North, Direction::South, Direction::West, Direction::East];
+        let routes = [Route::Right, Route::Straight, Route::Left];
+        let mut seen = std::collections::HashSet::new();
+        for dir in dirs {
+            for route in routes {
+                let idx = path_index(dir, route);
+                assert!(idx < 12, "index {} out of range", idx);
+                assert!(seen.insert(idx), "duplicate index {} for {:?} {:?}", idx, dir, route);
+            }
+        }
+    }
+
+    #[test]
+    fn all_four_right_turns_non_conflicting() {
+        let mut mgr = IntersectionManager::new();
+        assert!(mgr.request_reservation(1, Direction::North, Route::Right));
+        assert!(mgr.request_reservation(2, Direction::South, Route::Right));
+        assert!(mgr.request_reservation(3, Direction::West,  Route::Right));
+        assert!(mgr.request_reservation(4, Direction::East,  Route::Right));
+        assert_eq!(mgr.active_count(), 4);
+    }
+
+    #[test]
+    fn conflicting_request_denied() {
+        let mut mgr = IntersectionManager::new();
+        // (N,St) and (S,L) both traverse x=480 inside the intersection
+        assert!(mgr.request_reservation(1, Direction::North, Route::Straight));
+        assert!(!mgr.request_reservation(2, Direction::South, Route::Left));
+        assert_eq!(mgr.active_count(), 1);
+    }
+
+    #[test]
+    fn release_frees_slot() {
+        let mut mgr = IntersectionManager::new();
+        assert!(mgr.request_reservation(1, Direction::North, Route::Straight));
+        mgr.release_reservation(1);
+        assert!(mgr.request_reservation(2, Direction::South, Route::Left));
+        assert_eq!(mgr.active_count(), 1);
+    }
+
+    #[test]
+    fn active_count_tracks_grants_and_releases() {
+        let mut mgr = IntersectionManager::new();
+        mgr.request_reservation(1, Direction::North, Route::Right);
+        mgr.request_reservation(2, Direction::South, Route::Right);
+        mgr.request_reservation(3, Direction::West,  Route::Right);
+        assert_eq!(mgr.active_count(), 3);
+        mgr.release_reservation(2);
+        assert_eq!(mgr.active_count(), 2);
+    }
+
+    #[test]
+    fn spec_confirmed_north_right_west_straight_no_conflict() {
+        let mut mgr = IntersectionManager::new();
+        assert!(mgr.request_reservation(1, Direction::North, Route::Right));
+        assert!(mgr.request_reservation(2, Direction::West,  Route::Straight));
+        assert_eq!(mgr.active_count(), 2);
+    }
+
+    #[test]
+    fn idempotent_re_request() {
+        let mut mgr = IntersectionManager::new();
+        assert!(mgr.request_reservation(1, Direction::North, Route::Straight));
+        // Same vehicle requests again (re-enters trigger zone after a deny loop)
+        assert!(mgr.request_reservation(1, Direction::North, Route::Straight));
+        assert_eq!(mgr.active_count(), 1);
+    }
+
+    #[test]
+    fn trigger_zone_south_inside() {
+        // South vehicle (traveling north) — stop line y=600, zone y∈(600, 800]
+        let mgr = IntersectionManager::new();
+        assert!(mgr.is_in_trigger_zone(&make_vehicle(Direction::South, 420.0, 750.0)));
+    }
+
+    #[test]
+    fn trigger_zone_south_too_far() {
+        let mgr = IntersectionManager::new();
+        assert!(!mgr.is_in_trigger_zone(&make_vehicle(Direction::South, 420.0, 850.0)));
+    }
+
+    #[test]
+    fn trigger_zone_south_past_stop_line() {
+        let mgr = IntersectionManager::new();
+        // y=590 is inside the intersection box — no longer in approach trigger zone
+        assert!(!mgr.is_in_trigger_zone(&make_vehicle(Direction::South, 420.0, 590.0)));
+    }
+
+    #[test]
+    fn trigger_zone_north_inside() {
+        // North vehicle (traveling south) — stop line y=300, zone y∈[100, 300)
+        let mgr = IntersectionManager::new();
+        assert!(mgr.is_in_trigger_zone(&make_vehicle(Direction::North, 480.0, 150.0)));
+    }
+
+    #[test]
+    fn trigger_zone_west_inside() {
+        // West vehicle (traveling east) — stop line x=300, zone x∈[100, 300)
+        let mgr = IntersectionManager::new();
+        assert!(mgr.is_in_trigger_zone(&make_vehicle(Direction::West, 200.0, 420.0)));
+    }
+
+    #[test]
+    fn trigger_zone_east_inside() {
+        // East vehicle (traveling west) — stop line x=600, zone x∈(600, 800]
+        let mgr = IntersectionManager::new();
+        assert!(mgr.is_in_trigger_zone(&make_vehicle(Direction::East, 650.0, 480.0)));
     }
 }

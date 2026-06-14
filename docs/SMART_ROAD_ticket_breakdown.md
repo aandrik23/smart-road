@@ -41,9 +41,9 @@ The canonical product and technical requirements are in:
 ## Summary Snapshot
 
 - Total tickets: `8`
-- Done: `2`
+- Done: `4`
 - Partially Implemented: `0`
-- Not Started: `6`
+- Not Started: `4`
 
 ---
 
@@ -69,8 +69,8 @@ audit sign-off. Maps to SDS §§3–11 milestones.
 
 | # | Status | Ticket | Track | Description | Depends on | Blocks |
 |---|--------|--------|-------|-------------|------------|--------|
-| 3 | [ ] | **B1** | B | `IntersectionManager` — pre-computed conflict table (SDS §5.2), `request_reservation(id, dir, route) -> bool` (grant/deny with simultaneous non-conflicting support), `release_reservation(id)` gated on full intersection clearance, `is_in_trigger_zone` helper (200 px); unit tests for all conflict pairs (SDS §5) | A1, A2 | B2 |
-| 4 | [ ] | **B2** | B | Vehicle physics & state machine — `update(vehicle, dt, path_map, manager, all_vehicles, now_ms)`: waypoint traversal (advance at 2 px, `angle_deg` via `atan2` with SDL2 sign flip), smooth accel/decel (`ACCEL_RATE`/`DECEL_RATE`, never instant-snap), reservation lifecycle (`Approaching→InIntersection→Exiting→Removed`), same-lane safe-distance check (filter by `direction` + travel axis), `distance_travelled` accumulation, `entry_time_ms` set at first algorithm detection (SDS §6, §8) | A1, A2, B1 | C3, X1 |
+| 3 | [x] | **B1** | B | `IntersectionManager` — pre-computed conflict table (SDS §5.2), `request_reservation(id, dir, route) -> bool` (grant/deny with simultaneous non-conflicting support), `release_reservation(id)` gated on full intersection clearance, `is_in_trigger_zone` helper (200 px); unit tests for all conflict pairs (SDS §5) | A1, A2 | B2 |
+| 4 | [x] | **B2** | B | Vehicle physics & state machine — `update(vehicle, dt, path_map, manager, all_vehicles, now_ms)`: waypoint traversal (advance at 2 px, `angle_deg` via `atan2` with SDL2 sign flip), smooth accel/decel (`ACCEL_RATE`/`DECEL_RATE`, never instant-snap), reservation lifecycle (`Approaching→InIntersection→Exiting→Removed`), same-lane safe-distance check (filter by `direction` + travel axis), `distance_travelled` accumulation, `entry_time_ms` set at first algorithm detection (SDS §6, §8) | A1, A2, B1 | C3, X1 |
 | 5 | [ ] | **C1** | C | Renderer static + dynamic scene — road background (two gray rects + lighter intersection box), dashed lane markings (SDS §7.1); dynamic layer: vehicles rendered via `copy_ex` with `angle_deg` rotation and frame index from `distance_travelled`, HUD (vehicle count + active reservations); layer order: road → markings → box → vehicles → HUD; no canvas mutations outside `renderer.rs` (SDS §7) | A1 | C3 |
 
 ### Wave 3 — Input & Wiring (P2)

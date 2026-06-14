@@ -82,8 +82,9 @@ pub const SPEED_FAST: f32 = 180.0;
 pub const SAFE_DISTANCE: f32 = 80.0;
 pub const CLOSE_CALL_DIST: f32 = 30.0;
 pub const SPAWN_INTERVAL_MS: u64 = 800;
-pub const ACCEL_RATE: f32 = 60.0;
-pub const DECEL_RATE: f32 = 120.0;
+pub const ACCEL_RATE:         f32 = 60.0;
+pub const DECEL_RATE:         f32 = 120.0;
+pub const TRIGGER_DIST:       f32 = 200.0;
 
 // CLOSE_CALL_DIST (30.0) < SAFE_DISTANCE (80.0) — violation threshold is smaller than safe gap
 const _: () = assert!(
