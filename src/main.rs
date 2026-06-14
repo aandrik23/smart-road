@@ -1,4 +1,3 @@
-// Stub modules are intentionally unused until later tickets wire them up.
 #![allow(dead_code)]
 
 mod types;
@@ -8,13 +7,11 @@ mod renderer;
 mod input;
 mod stats;
 
-use std::time::{Duration, Instant};
-use sdl2::event::Event;
-use sdl2::keyboard::Keycode;
-use sdl2::pixels::Color;
+use std::time::Instant;
 
-use types::WINDOW_WIDTH;
-use types::WINDOW_HEIGHT;
+use types::{Stats, Vehicle, WINDOW_HEIGHT, WINDOW_WIDTH};
+use input::InputState;
+use intersection::{build_path_map, IntersectionManager};
 
 fn main() {
     let sdl = sdl2::init().expect("SDL2 init failed");
@@ -34,33 +31,94 @@ fn main() {
 
     let mut event_pump = sdl.event_pump().expect("event pump failed");
 
-    let target_frame = Duration::from_micros(16_667); // ~60 FPS
+    let path_map = build_path_map();
+    let mut manager = IntersectionManager::new();
+
+    let mut vehicles: Vec<Vehicle> = Vec::new();
+    let mut input_state = InputState::new();
+    let mut next_id = 1;
+
+    let mut stats = Stats {
+        total_passed: 0,
+        max_velocity: 0.0,
+        min_velocity: f32::MAX,
+        max_time_ms: 0,
+        min_time_ms: u64::MAX,
+        close_calls: 0,
+    };
+
+    let start_time = Instant::now();
+    let mut last_vehicle_count = 0;
 
     'running: loop {
-        let frame_start = Instant::now();
+        let now_ms = start_time.elapsed().as_millis() as u64;
 
-        // --- events ---
-        let events: Vec<Event> = event_pump.poll_iter().collect();
-        for event in &events {
-            if let Event::KeyDown { keycode: Some(Keycode::Escape), .. } = event {
-                break 'running;
+        input::handle_events(
+            &mut event_pump,
+            &mut input_state,
+            &mut vehicles,
+            &path_map,
+            &mut next_id,
+            now_ms,
+        );
+
+        if input_state.quit {
+            break 'running;
+        }
+
+        let dt = 1.0 / 60.0;
+        let snapshot = vehicles.clone();
+
+        vehicles.retain_mut(|vehicle| {
+            stats::record_velocity(&mut stats, vehicle.velocity);
+
+            let alive = vehicle::update(
+                vehicle,
+                dt,
+                &path_map,
+                &mut manager,
+                &snapshot,
+                now_ms,
+            );
+
+            if !alive {
+                stats::record_passed(&mut stats);
+                stats::record_transit(
+                    &mut stats,
+                    vehicle.entry_time_ms,
+                    vehicle.exit_time_ms,
+                );
             }
+
+            alive
+        });
+
+        stats::record_close_calls(&mut stats, &vehicles);
+
+        if vehicles.len() != last_vehicle_count {
+            println!("active vehicles: {}", vehicles.len());
+
+            if let Some(vehicle) = vehicles.last() {
+                println!(
+                    "vehicle id={} from {:?}, route {:?}, pos=({}, {})",
+                    vehicle.id,
+                    vehicle.direction,
+                    vehicle.route,
+                    vehicle.pos.x,
+                    vehicle.pos.y
+                );
+            }
+
+            last_vehicle_count = vehicles.len();
         }
-        // Placeholder: handle_events(...) will be wired here in C2/C3
 
-        // --- update ---
-        // Placeholder: vehicle::update(...) called per vehicle here in C3
-
-        // --- draw ---
-        canvas.set_draw_color(Color::RGB(0x3a, 0x3a, 0x3a));
-        canvas.clear();
-        // Placeholder: renderer::draw(...) called here in C3
-        canvas.present();
-
-        // --- FPS cap ---
-        let elapsed = frame_start.elapsed();
-        if elapsed < target_frame {
-            std::thread::sleep(target_frame - elapsed);
-        }
+        renderer::draw(
+            &mut canvas,
+            &vehicles,
+            &manager,
+            &stats,
+        );
     }
+
+    stats::print_final(&stats);
 }

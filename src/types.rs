@@ -67,6 +67,13 @@ pub struct Stats {
     pub close_calls: u32,
 }
 
+#[derive(Debug, Clone)]
+pub struct InputState {
+    pub random_mode: bool,
+    pub quit: bool,
+    pub last_spawn: [u64; 4],
+}
+
 
 pub const WINDOW_WIDTH: u32 = 900;
 pub const WINDOW_HEIGHT: u32 = 900;
