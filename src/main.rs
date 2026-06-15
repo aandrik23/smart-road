@@ -29,6 +29,9 @@ fn main() {
         .build()
         .expect("canvas creation failed");
 
+    let texture_creator = canvas.texture_creator();
+    let textures = renderer::create_vehicle_textures(&texture_creator);
+
     let mut event_pump = sdl.event_pump().expect("event pump failed");
 
     let path_map = build_path_map();
@@ -116,7 +119,7 @@ fn main() {
             &mut canvas,
             &vehicles,
             &manager,
-            &stats,
+            &textures,
         );
     }
 

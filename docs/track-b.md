@@ -93,11 +93,11 @@ as a 12×12 `bool` array indexed by a path enum. Either is acceptable.
 - Cover all four conflict pairs mentioned in SDS §5.2
 
 #### Verification gate
-- [ ] Unit tests pass: all conflict/non-conflict cases covered
-- [ ] Two non-conflicting vehicles can hold reservations simultaneously
-- [ ] A conflicting request is denied while the first reservation is active
-- [ ] `release_reservation` actually frees the slot (subsequent grant succeeds)
-- [ ] No SDL2 import in `intersection.rs`
+- [x] Unit tests pass: all conflict/non-conflict cases covered
+- [x] Two non-conflicting vehicles can hold reservations simultaneously
+- [x] A conflicting request is denied while the first reservation is active
+- [x] `release_reservation` actually frees the slot (subsequent grant succeeds)
+- [x] No SDL2 import in `intersection.rs`
 
 ---
 
@@ -195,13 +195,13 @@ Not at the first exit waypoint. Not when `state` changes to `Exiting`.
 Early release is the most common source of phantom collisions.
 
 #### Verification gate
-- [ ] Vehicles traverse all 12 route/direction paths to off-screen without freezing
-- [ ] `angle_deg` updates at every waypoint — no sideways sliding through turns
-- [ ] Velocity changes are smooth (gradual accel/decel), never instantaneous
-- [ ] `entry_time_ms` is set at trigger zone entry, not at spawn
-- [ ] Reservations are released only after full intersection clearance
-- [ ] Safe-distance check fires on approach roads, not just inside the intersection
-- [ ] No SDL2 import in `vehicle.rs`
+- [x] Vehicles traverse all 12 route/direction paths to off-screen without freezing
+- [x] `angle_deg` updates at every waypoint — no sideways sliding through turns
+- [x] Velocity changes are smooth (gradual accel/decel), never instantaneous
+- [x] `entry_time_ms` is set at trigger zone entry, not at spawn
+- [x] Reservations are released only after full intersection clearance
+- [x] Safe-distance check fires on approach roads, not just inside the intersection
+- [x] No SDL2 import in `vehicle.rs`
 
 ---
 

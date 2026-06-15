@@ -41,9 +41,9 @@ The canonical product and technical requirements are in:
 ## Summary Snapshot
 
 - Total tickets: `8`
-- Done: `4`
-- Partially Implemented: `0`
-- Not Started: `4`
+- Done: `6`
+- Partially Implemented: `1`
+- Not Started: `2`
 
 ---
 
@@ -71,7 +71,7 @@ audit sign-off. Maps to SDS §§3–11 milestones.
 |---|--------|--------|-------|-------------|------------|--------|
 | 3 | [x] | **B1** | B | `IntersectionManager` — pre-computed conflict table (SDS §5.2), `request_reservation(id, dir, route) -> bool` (grant/deny with simultaneous non-conflicting support), `release_reservation(id)` gated on full intersection clearance, `is_in_trigger_zone` helper (200 px); unit tests for all conflict pairs (SDS §5) | A1, A2 | B2 |
 | 4 | [x] | **B2** | B | Vehicle physics & state machine — `update(vehicle, dt, path_map, manager, all_vehicles, now_ms)`: waypoint traversal (advance at 2 px, `angle_deg` via `atan2` with SDL2 sign flip), smooth accel/decel (`ACCEL_RATE`/`DECEL_RATE`, never instant-snap), reservation lifecycle (`Approaching→InIntersection→Exiting→Removed`), same-lane safe-distance check (filter by `direction` + travel axis), `distance_travelled` accumulation, `entry_time_ms` set at first algorithm detection (SDS §6, §8) | A1, A2, B1 | C3, X1 |
-| 5 | [ ] | **C1** | C | Renderer static + dynamic scene — road background (two gray rects + lighter intersection box), dashed lane markings (SDS §7.1); dynamic layer: vehicles rendered via `copy_ex` with `angle_deg` rotation and frame index from `distance_travelled`, HUD (vehicle count + active reservations); layer order: road → markings → box → vehicles → HUD; no canvas mutations outside `renderer.rs` (SDS §7) | A1 | C3 |
+| 5 | [x] | **C1** | C | Renderer static + dynamic scene — road background (two gray rects + lighter intersection box), dashed lane markings (SDS §7.1); dynamic layer: vehicles rendered via `copy_ex` with `angle_deg` rotation and frame index from `distance_travelled`, HUD (vehicle count + active reservations); layer order: road → markings → box → vehicles → HUD; no canvas mutations outside `renderer.rs` (SDS §7) | A1 | C3 |
 
 ### Wave 3 — Input & Wiring (P2)
 
@@ -79,8 +79,8 @@ audit sign-off. Maps to SDS §§3–11 milestones.
 
 | # | Status | Ticket | Track | Description | Depends on | Blocks |
 |---|--------|--------|-------|-------------|------------|--------|
-| 6 | [ ] | **C2** | C | Input handling & spawner — SDL2 event pump: arrow keys spawn per-direction (route from lane definition, never independent), `R` toggles continuous random-spawn mode, `Esc` triggers stats + quit; per-direction spawn guard (`last_spawn_time`, gated on `SPAWN_INTERVAL_MS`); vehicles spawn off-screen at path waypoint 0 (SDS §8) | A1, A2 | C3 |
-| 7 | [ ] | **C3** | C | `main.rs` wiring — `dt`-clamped game loop calling vehicle `update`, `IntersectionManager`, and `draw` each tick; Esc triggers stats overlay then clean exit; interactive end-to-end verified manually (SDS §2, §8) | B2, C1, C2 | A3, X2 |
+| 6 | [x] | **C2** | C | Input handling & spawner — SDL2 event pump: arrow keys spawn per-direction (route from lane definition, never independent), `R` toggles continuous random-spawn mode, `Esc` triggers stats + quit; per-direction spawn guard (`last_spawn_time`, gated on `SPAWN_INTERVAL_MS`); vehicles spawn off-screen at path waypoint 0 (SDS §8) | A1, A2 | C3 |
+| 7 | [-] | **C3** | C | `main.rs` wiring — `dt`-clamped game loop calling vehicle `update`, `IntersectionManager`, and `draw` each tick; Esc triggers stats overlay then clean exit; interactive end-to-end verified manually (SDS §2, §8) | B2, C1, C2 | A3, X2 |
 
 ### Wave 4 — Statistics, Hygiene & Polish (P3)
 

@@ -68,12 +68,12 @@ Do not hardcode them in `renderer.rs`.
 minimum: `Vehicles: N` and `Reservations: M`. Keep it unobtrusive (small font, corner).
 
 #### Verification gate
-- [ ] Road, lane markings, intersection box, vehicles, and HUD are all visible and correctly layered
-- [ ] Vehicles rotate to face direction of travel at every waypoint
-- [ ] Frame animation advances with `distance_travelled`
-- [ ] HUD updates each frame (vehicle count changes as vehicles spawn/despawn)
-- [ ] No canvas mutation outside `renderer.rs`
-- [ ] No vehicle or intersection state is modified inside `renderer.rs`
+- [x] Road, lane markings, intersection box, vehicles, and HUD are all visible and correctly layered
+- [x] Vehicles rotate to face direction of travel at every waypoint
+- [x] Frame animation advances with `distance_travelled`
+- [x] HUD updates each frame (vehicle count changes as vehicles spawn/despawn)
+- [x] No canvas mutation outside `renderer.rs`
+- [x] No vehicle or intersection state is modified inside `renderer.rs`
 
 ---
 
@@ -154,13 +154,13 @@ Lane definitions from SDS §4.1:
   chosen direction, still subject to the spawn guard per direction
 
 #### Verification gate
-- [ ] Each arrow key spawns a vehicle off-screen that drives into view
-- [ ] Spawn guard prevents overlap: holding a key for 2 seconds produces at most `2000 / SPAWN_INTERVAL_MS` vehicles per direction
-- [ ] `R` key toggles random mode; vehicles spawn automatically while active
-- [ ] Esc sets `quit = true` (C3 uses this to trigger stats + exit)
-- [ ] Route is always derived from lane, never set independently
-- [ ] Vehicles spawn at `path[0]` (off-screen), not at the stop line or intersection edge
-- [ ] No physics or reservation logic in `input.rs`
+- [x] Each arrow key spawns a vehicle off-screen that drives into view
+- [x] Spawn guard prevents overlap: holding a key for 2 seconds produces at most `2000 / SPAWN_INTERVAL_MS` vehicles per direction
+- [x] `R` key toggles random mode; vehicles spawn automatically while active
+- [x] Esc sets `quit = true` (C3 uses this to trigger stats + exit)
+- [x] Route is always derived from lane, never set independently
+- [x] Vehicles spawn at `path[0]` (off-screen), not at the stop line or intersection edge
+- [x] No physics or reservation logic in `input.rs`
 
 ---
 
