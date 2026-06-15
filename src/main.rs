@@ -7,7 +7,9 @@ mod renderer;
 mod input;
 mod stats;
 
-use std::time::Instant;
+use std::time::{Duration, Instant};
+
+use sdl2::event::Event;
 
 use types::{Stats, Vehicle, WINDOW_HEIGHT, WINDOW_WIDTH};
 use input::InputState;
@@ -51,9 +53,13 @@ fn main() {
     };
 
     let start_time = Instant::now();
+    let mut prev_instant = Instant::now();
     let mut last_vehicle_count = 0;
 
     'running: loop {
+        let frame_now = Instant::now();
+        let dt = frame_now.duration_since(prev_instant).as_secs_f32().min(0.05);
+        prev_instant = frame_now;
         let now_ms = start_time.elapsed().as_millis() as u64;
 
         input::handle_events(
@@ -66,10 +72,21 @@ fn main() {
         );
 
         if input_state.quit {
+            renderer::draw_stats_overlay(&mut canvas, &stats);
+            'overlay: loop {
+                for event in event_pump.poll_iter() {
+                    match event {
+                        Event::Quit { .. } | Event::KeyDown { .. } | Event::MouseButtonDown { .. } => {
+                            break 'overlay;
+                        }
+                        _ => {}
+                    }
+                }
+                std::thread::sleep(Duration::from_millis(16));
+            }
             break 'running;
         }
 
-        let dt = 1.0 / 60.0;
         let snapshot = vehicles.clone();
 
         vehicles.retain_mut(|vehicle| {
@@ -123,5 +140,4 @@ fn main() {
         );
     }
 
-    stats::print_final(&stats);
 }

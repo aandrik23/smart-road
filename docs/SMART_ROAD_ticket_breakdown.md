@@ -40,10 +40,10 @@ The canonical product and technical requirements are in:
 
 ## Summary Snapshot
 
-- Total tickets: `8`
-- Done: `6`
-- Partially Implemented: `1`
-- Not Started: `2`
+- Total tickets: `9`
+- Done: `8`
+- Partially Implemented: `0`
+- Not Started: `1`
 
 ---
 
@@ -80,7 +80,7 @@ audit sign-off. Maps to SDS §§3–11 milestones.
 | # | Status | Ticket | Track | Description | Depends on | Blocks |
 |---|--------|--------|-------|-------------|------------|--------|
 | 6 | [x] | **C2** | C | Input handling & spawner — SDL2 event pump: arrow keys spawn per-direction (route from lane definition, never independent), `R` toggles continuous random-spawn mode, `Esc` triggers stats + quit; per-direction spawn guard (`last_spawn_time`, gated on `SPAWN_INTERVAL_MS`); vehicles spawn off-screen at path waypoint 0 (SDS §8) | A1, A2 | C3 |
-| 7 | [-] | **C3** | C | `main.rs` wiring — `dt`-clamped game loop calling vehicle `update`, `IntersectionManager`, and `draw` each tick; Esc triggers stats overlay then clean exit; interactive end-to-end verified manually (SDS §2, §8) | B2, C1, C2 | A3, X2 |
+| 7 | [x] | **C3** | C | `main.rs` wiring — `dt`-clamped game loop calling vehicle `update`, `IntersectionManager`, and `draw` each tick; Esc triggers stats overlay then clean exit; interactive end-to-end verified manually (SDS §2, §8) | B2, C1, C2 | A3, X2 |
 
 ### Wave 4 — Statistics, Hygiene & Polish (P3)
 
@@ -88,7 +88,7 @@ audit sign-off. Maps to SDS §§3–11 milestones.
 
 | # | Status | Ticket | Track | Description | Depends on | Blocks |
 |---|--------|--------|-------|-------------|------------|--------|
-| 8 | [ ] | **X1** | A/C | Stats collection & end-screen — `Stats` update methods (`record_passed`, `record_velocity` in-motion only, `record_transit`); Euclidean close-call detection per frame (`< CLOSE_CALL_DIST`, documented per-frame vs deduplicated policy); SDL2 Esc overlay showing total passed, max/min velocity, max/min transit time, close-call count; bonus `VehicleKind` enum in `types.rs` with per-kind `ACCEL_RATE`/`DECEL_RATE` (SDS §9, §11) | B2, C3 | X2 |
+| 8 | [x] | **X1** | A/C | Stats collection & end-screen — `Stats` update methods (`record_passed`, `record_velocity` in-motion only, `record_transit`); Euclidean close-call detection per frame (`< CLOSE_CALL_DIST`, documented per-frame vs deduplicated policy); SDL2 Esc overlay showing total passed, max/min velocity, max/min transit time, close-call count; bonus `VehicleKind` enum in `types.rs` with per-kind `ACCEL_RATE`/`DECEL_RATE` (SDS §9, §11) | B2, C3 | X2 |
 | 9 | [ ] | **X2** | A | Project-wide hygiene sweep — zero warnings, `clippy -D warnings`, README prerequisites, `.gitignore`, minimal `Cargo.toml`; module-boundary audit (no SDL2 in pure modules, no magic numbers outside `types.rs`, `CLOSE_CALL_DIST < SAFE_DISTANCE` enforced, `entry_time_ms` not set at spawn) (AGENTS.md §2, §11) | X1, C3 + all | None |
 
 > Ticket counts by track: A = A1–A2 + X2 (3), B = B1–B2 (2), C = C1–C3 (3), shared X1 (1) = **9 tickets, 8 rows** (X1 is jointly owned by A/C). Track B carries fewer tickets because `vehicle.rs` is a single module; work per ticket is correspondingly larger.

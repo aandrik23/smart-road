@@ -6,7 +6,7 @@ use sdl2::video::{Window, WindowContext};
 
 use crate::intersection::IntersectionManager;
 use crate::types::{
-    Vehicle, Route,
+    Stats, Vehicle, Route,
     INTER_X, INTER_Y, INTER_W, INTER_H,
     SPRITE_W, SPRITE_H, FRAME_COUNT, FRAME_STRIDE,
     WINDOW_WIDTH, WINDOW_HEIGHT,
@@ -95,6 +95,132 @@ fn draw_number(canvas: &mut Canvas<Window>, mut n: u32, x: i32, y: i32, scale: i
     for (i, &d) in digits.iter().enumerate() {
         draw_digit(canvas, d, x + i as i32 * char_w, y, scale);
     }
+}
+
+fn glyph_for(ch: char) -> Option<[u8; 5]> {
+    match ch {
+        '0'..='9' => Some(DIGIT_FONT[(ch as u8 - b'0') as usize]),
+        'A' => Some([0b010, 0b101, 0b111, 0b101, 0b101]),
+        'C' => Some([0b111, 0b100, 0b100, 0b100, 0b111]),
+        'E' => Some([0b111, 0b100, 0b110, 0b100, 0b111]),
+        'H' => Some([0b101, 0b101, 0b111, 0b101, 0b101]),
+        'I' => Some([0b111, 0b010, 0b010, 0b010, 0b111]),
+        'K' => Some([0b101, 0b101, 0b110, 0b101, 0b101]),
+        'L' => Some([0b100, 0b100, 0b100, 0b100, 0b111]),
+        'M' => Some([0b101, 0b111, 0b101, 0b101, 0b101]),
+        'N' => Some([0b101, 0b110, 0b101, 0b101, 0b101]),
+        'O' => Some([0b111, 0b101, 0b101, 0b101, 0b111]),
+        'S' => Some([0b111, 0b100, 0b111, 0b001, 0b111]),
+        'T' => Some([0b111, 0b010, 0b010, 0b010, 0b010]),
+        'V' => Some([0b101, 0b101, 0b101, 0b101, 0b010]),
+        'X' => Some([0b101, 0b101, 0b010, 0b101, 0b101]),
+        'Y' => Some([0b101, 0b101, 0b010, 0b010, 0b010]),
+        ' ' => Some([0b000, 0b000, 0b000, 0b000, 0b000]),
+        ':' => Some([0b000, 0b010, 0b000, 0b010, 0b000]),
+        _   => None,
+    }
+}
+
+fn draw_char(canvas: &mut Canvas<Window>, ch: char, x: i32, y: i32, scale: i32) {
+    let Some(rows) = glyph_for(ch) else { return };
+    for (row, &bits) in rows.iter().enumerate() {
+        for col in 0i32..3 {
+            if bits & (0b100 >> col) != 0 {
+                canvas
+                    .fill_rect(Rect::new(
+                        x + col * scale,
+                        y + row as i32 * scale,
+                        scale as u32,
+                        scale as u32,
+                    ))
+                    .ok();
+            }
+        }
+    }
+}
+
+fn draw_str(canvas: &mut Canvas<Window>, text: &str, x: i32, y: i32, scale: i32) {
+    let step = 3 * scale + scale;
+    for (i, ch) in text.chars().enumerate() {
+        draw_char(canvas, ch.to_ascii_uppercase(), x + i as i32 * step, y, scale);
+    }
+}
+
+pub fn draw_stats_overlay(canvas: &mut Canvas<Window>, stats: &Stats) {
+    const SC: i32 = 4;
+    const CW: i32 = 3 * SC + SC; // 16 px per glyph cell
+    const LH: i32 = 30;          // line height
+
+    canvas.set_draw_color(Color::RGB(8, 8, 20));
+    canvas.clear();
+
+    let px = 110i32;
+    let py = 170i32;
+    let pw = 680u32;
+    let ph = 540u32;
+
+    canvas.set_draw_color(Color::RGB(20, 20, 50));
+    canvas.fill_rect(Rect::new(px, py, pw, ph)).ok();
+    canvas.set_draw_color(Color::RGB(70, 70, 200));
+    canvas.draw_rect(Rect::new(px, py, pw, ph)).ok();
+
+    let lx = px + 24;
+    let mut ly = py + 24;
+
+    // Title
+    canvas.set_draw_color(Color::RGB(255, 215, 0));
+    draw_str(canvas, "VEHICLE STATS", lx, ly, SC);
+    ly += LH + LH / 2;
+
+    // Divider
+    canvas.set_draw_color(Color::RGB(70, 70, 200));
+    canvas.fill_rect(Rect::new(lx, ly, pw - 48, 2)).ok();
+    ly += LH;
+
+    // All labels are 11 chars wide; values start at this x offset
+    let vx = lx + 11 * CW;
+
+    canvas.set_draw_color(Color::RGB(80, 220, 80));
+    draw_str(canvas, "VEHICLES  :", lx, ly, SC);
+    draw_number(canvas, stats.total_passed, vx, ly, SC);
+    ly += LH;
+
+    canvas.set_draw_color(Color::RGB(100, 180, 255));
+    draw_str(canvas, "MAX VEL   :", lx, ly, SC);
+    draw_number(canvas, stats.max_velocity as u32, vx, ly, SC);
+    ly += LH;
+
+    canvas.set_draw_color(Color::RGB(100, 180, 255));
+    draw_str(canvas, "MIN VEL   :", lx, ly, SC);
+    let min_v = if stats.min_velocity >= f32::MAX / 2.0 { 0 } else { stats.min_velocity as u32 };
+    draw_number(canvas, min_v, vx, ly, SC);
+    ly += LH;
+
+    canvas.set_draw_color(Color::RGB(255, 160, 60));
+    draw_str(canvas, "MAX TIME  :", lx, ly, SC);
+    draw_number(canvas, stats.max_time_ms as u32, vx, ly, SC);
+    ly += LH;
+
+    canvas.set_draw_color(Color::RGB(255, 160, 60));
+    draw_str(canvas, "MIN TIME  :", lx, ly, SC);
+    let min_t = if stats.min_time_ms == u64::MAX { 0 } else { stats.min_time_ms as u32 };
+    draw_number(canvas, min_t, vx, ly, SC);
+    ly += LH;
+
+    canvas.set_draw_color(Color::RGB(255, 80, 80));
+    draw_str(canvas, "CLOSE     :", lx, ly, SC);
+    draw_number(canvas, stats.close_calls, vx, ly, SC);
+    ly += LH * 2;
+
+    // Divider
+    canvas.set_draw_color(Color::RGB(70, 70, 200));
+    canvas.fill_rect(Rect::new(lx, ly - LH / 2, pw - 48, 2)).ok();
+
+    // Dismiss prompt
+    canvas.set_draw_color(Color::RGB(150, 150, 150));
+    draw_str(canvas, "ANY KEY TO CLOSE", lx + CW * 3, ly, SC);
+
+    canvas.present();
 }
 
 pub fn draw(

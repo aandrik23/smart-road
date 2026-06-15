@@ -13,10 +13,12 @@ fn is_inside_intersection(pos: Vec2) -> bool {
         && (INTER_Y..INTER_Y + INTER_H).contains(&pos.y)
 }
 
-fn apply_safe_distance(vehicle: &Vehicle, all_vehicles: &[Vehicle]) -> bool {
-    let nearest = all_vehicles
+fn nearest_ahead(vehicle: &Vehicle, all_vehicles: &[Vehicle]) -> f32 {
+    all_vehicles
         .iter()
-        .filter(|o| o.id != vehicle.id && o.direction == vehicle.direction)
+        .filter(|o| o.id != vehicle.id
+                 && o.direction == vehicle.direction
+                 && o.route == vehicle.route)
         .filter(|o| match vehicle.direction {
             Direction::South => o.pos.y < vehicle.pos.y,
             Direction::North => o.pos.y > vehicle.pos.y,
@@ -28,8 +30,7 @@ fn apply_safe_distance(vehicle: &Vehicle, all_vehicles: &[Vehicle]) -> bool {
             let dy = o.pos.y - vehicle.pos.y;
             (dx * dx + dy * dy).sqrt()
         })
-        .fold(f32::INFINITY, f32::min);
-    nearest < SAFE_DISTANCE
+        .fold(f32::INFINITY, f32::min)
 }
 
 pub fn update(
@@ -87,7 +88,9 @@ pub fn update(
     // State machine — reads the updated position from this frame.
     match vehicle.state {
         VehicleState::Approaching => {
-            if manager.is_in_trigger_zone(vehicle) {
+            let in_trigger = manager.is_in_trigger_zone(vehicle);
+            let in_box     = is_inside_intersection(vehicle.pos);
+            if in_trigger || in_box {
                 if vehicle.entry_time_ms == 0 {
                     vehicle.entry_time_ms = now_ms;
                 }
@@ -96,16 +99,17 @@ pub fn update(
                 );
                 if granted {
                     vehicle.target_vel = SPEED_MEDIUM;
+                    if in_box {
+                        // Reservation confirmed and vehicle has crossed the stop line:
+                        // commit the state transition here rather than waiting for the
+                        // next frame so InIntersection is never entered without a slot.
+                        vehicle.state = VehicleState::InIntersection;
+                    }
                 } else {
-                    vehicle.target_vel = SPEED_SLOW;
+                    // Hard stop: SPEED_SLOW never reaches zero so denied vehicles
+                    // would creep across the stop line and enter without a reservation.
+                    vehicle.target_vel = 0.0;
                 }
-            } else if is_inside_intersection(vehicle.pos) {
-                // Vehicle crossed the stop-line. Reservation must have been granted
-                // while in the trigger zone (TRIGGER_DIST = 200 px at SPEED_SLOW = 40 px/s
-                // gives ~5 s to acquire a slot). This branch cannot fire without a granted
-                // reservation under normal simulation parameters.
-                vehicle.state = VehicleState::InIntersection;
-                vehicle.target_vel = SPEED_MEDIUM;
             } else {
                 vehicle.target_vel = SPEED_FAST;
             }
@@ -128,9 +132,15 @@ pub fn update(
         }
     }
 
-    // Safe-distance clamp: overrides target_vel downward when a same-direction
-    // vehicle is less than SAFE_DISTANCE ahead.
-    if apply_safe_distance(vehicle, all_vehicles) {
+    // Two-level safe-distance response:
+    //   gap < SAFE_DISTANCE            → hard stop (leader may be stopped; SLOW still closes gap)
+    //   SAFE_DISTANCE ≤ gap < window   → decelerate to SLOW (kinematic braking window)
+    let gap = nearest_ahead(vehicle, all_vehicles);
+    let excess = (vehicle.velocity - SPEED_SLOW).max(0.0);
+    let brake_window = SAFE_DISTANCE + excess * excess / (2.0 * DECEL_RATE);
+    if gap < SAFE_DISTANCE {
+        vehicle.target_vel = 0.0;
+    } else if gap < brake_window && vehicle.target_vel > SPEED_SLOW {
         vehicle.target_vel = SPEED_SLOW;
     }
 
@@ -248,7 +258,7 @@ mod tests {
         let all = vec![leader.clone()];
         update(&mut follower, 1.0 / 60.0, &path_map, &mut mgr, &all, 0);
 
-        assert_eq!(follower.target_vel, SPEED_SLOW,
-            "follower must slow to SPEED_SLOW when gap to leader < SAFE_DISTANCE");
+        assert_eq!(follower.target_vel, 0.0,
+            "follower must hard-stop when gap to leader is inside SAFE_DISTANCE");
     }
 }
