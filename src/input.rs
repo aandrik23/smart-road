@@ -5,7 +5,7 @@ use sdl2::keyboard::Keycode;
 
 use crate::types::{
     Direction, Route, Vehicle, VehicleState, Vec2,
-    SPEED_FAST, SPAWN_INTERVAL_MS,
+    SPEED_FAST, SPAWN_INTERVAL_MS, SAFE_DISTANCE,
 };
 
 #[derive(Debug, Clone)]
@@ -82,6 +82,20 @@ fn spawn_vehicle(
     let Some(path) = path_map.get(&(direction, route)) else {
         return;
     };
+
+    // Don't spawn if the lane is backed up to the spawn point.
+    let spawn = path[0];
+    let blocked = vehicles.iter().any(|v| {
+        if v.direction != direction || v.route != route {
+            return false;
+        }
+        let dx = v.pos.x - spawn.x;
+        let dy = v.pos.y - spawn.y;
+        (dx * dx + dy * dy).sqrt() < SAFE_DISTANCE
+    });
+    if blocked {
+        return;
+    }
 
     vehicles.push(Vehicle {
         id: *next_id,

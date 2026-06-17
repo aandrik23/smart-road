@@ -13,6 +13,7 @@ fn is_inside_intersection(pos: Vec2) -> bool {
         && (INTER_Y..INTER_Y + INTER_H).contains(&pos.y)
 }
 
+
 fn nearest_ahead(vehicle: &Vehicle, all_vehicles: &[Vehicle]) -> f32 {
     all_vehicles
         .iter()
@@ -106,9 +107,7 @@ pub fn update(
                         vehicle.state = VehicleState::InIntersection;
                     }
                 } else {
-                    // Hard stop: SPEED_SLOW never reaches zero so denied vehicles
-                    // would creep across the stop line and enter without a reservation.
-                    vehicle.target_vel = 0.0;
+                    vehicle.target_vel = SPEED_SLOW;
                 }
             } else {
                 vehicle.target_vel = SPEED_FAST;
@@ -132,15 +131,11 @@ pub fn update(
         }
     }
 
-    // Two-level safe-distance response:
-    //   gap < SAFE_DISTANCE            → hard stop (leader may be stopped; SLOW still closes gap)
-    //   SAFE_DISTANCE ≤ gap < window   → decelerate to SLOW (kinematic braking window)
+    // Safe-distance following: never close faster than SPEED_SLOW into the vehicle ahead.
     let gap = nearest_ahead(vehicle, all_vehicles);
     let excess = (vehicle.velocity - SPEED_SLOW).max(0.0);
     let brake_window = SAFE_DISTANCE + excess * excess / (2.0 * DECEL_RATE);
-    if gap < SAFE_DISTANCE {
-        vehicle.target_vel = 0.0;
-    } else if gap < brake_window && vehicle.target_vel > SPEED_SLOW {
+    if gap < brake_window && vehicle.target_vel > SPEED_SLOW {
         vehicle.target_vel = SPEED_SLOW;
     }
 
@@ -251,14 +246,14 @@ mod tests {
         // South travels north (y decreasing), so smaller y = further ahead.
         let mut leader   = make_vehicle(1, Direction::South, Route::Straight);
         let mut follower = make_vehicle(2, Direction::South, Route::Straight);
-        leader.pos   = Vec2 { x: 420.0, y: 820.0 };
-        follower.pos = Vec2 { x: 420.0, y: 820.0 + SAFE_DISTANCE * 0.5 };
+        leader.pos   = Vec2 { x: 360.0, y: 820.0 };
+        follower.pos = Vec2 { x: 360.0, y: 820.0 + SAFE_DISTANCE * 0.5 };
         follower.target_vel = SPEED_FAST;
 
         let all = vec![leader.clone()];
         update(&mut follower, 1.0 / 60.0, &path_map, &mut mgr, &all, 0);
 
-        assert_eq!(follower.target_vel, 0.0,
-            "follower must hard-stop when gap to leader is inside SAFE_DISTANCE");
+        assert_eq!(follower.target_vel, SPEED_SLOW,
+            "follower must reduce to SPEED_SLOW when gap to leader is inside SAFE_DISTANCE");
     }
 }

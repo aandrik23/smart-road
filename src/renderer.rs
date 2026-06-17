@@ -253,22 +253,22 @@ pub fn draw(
     canvas.set_draw_color(Color::RGB(230, 230, 230));
 
     for x in [330, 390, 450, 510, 570] {
-        draw_dashed_vertical(canvas, x, 0, 300);
-        draw_dashed_vertical(canvas, x, 600, 900);
+        draw_dashed_vertical(canvas, x, 0, INTER_Y as i32);
+        draw_dashed_vertical(canvas, x, (INTER_Y + INTER_H) as i32, WINDOW_HEIGHT as i32);
     }
     for y in [330, 390, 450, 510, 570] {
-        draw_dashed_horizontal(canvas, y, 0, 300);
-        draw_dashed_horizontal(canvas, y, 600, 900);
+        draw_dashed_horizontal(canvas, y, 0, INTER_X as i32);
+        draw_dashed_horizontal(canvas, y, (INTER_X + INTER_W) as i32, WINDOW_WIDTH as i32);
     }
-    // Center guides inside intersection
-    draw_dashed_vertical(canvas, 450, 300, 600);
-    draw_dashed_horizontal(canvas, 450, 300, 600);
+    // Center guide inside intersection
+    draw_dashed_vertical(canvas, 450, INTER_Y as i32, (INTER_Y + INTER_H) as i32);
+    draw_dashed_horizontal(canvas, 450, INTER_X as i32, (INTER_X + INTER_W) as i32);
 
     // Stop lines
-    canvas.fill_rect(Rect::new(300, 295, 300, 5)).ok();
-    canvas.fill_rect(Rect::new(300, 600, 300, 5)).ok();
-    canvas.fill_rect(Rect::new(295, 300, 5, 300)).ok();
-    canvas.fill_rect(Rect::new(600, 300, 5, 300)).ok();
+    canvas.fill_rect(Rect::new(INTER_X as i32, INTER_Y as i32 - 5, INTER_W as u32, 5)).ok();
+    canvas.fill_rect(Rect::new(INTER_X as i32, (INTER_Y + INTER_H) as i32, INTER_W as u32, 5)).ok();
+    canvas.fill_rect(Rect::new(INTER_X as i32 - 5, INTER_Y as i32, 5, INTER_H as u32)).ok();
+    canvas.fill_rect(Rect::new((INTER_X + INTER_W) as i32, INTER_Y as i32, 5, INTER_H as u32)).ok();
 
     // 5. Vehicles — copy_ex with angle_deg rotation and frame animation
     for vehicle in vehicles {

@@ -70,11 +70,16 @@ impl IntersectionManager {
     pub fn new() -> Self {
         IntersectionManager {
             conflicts: build_conflict_table(),
-            active: HashMap::new(),
+            active:    HashMap::new(),
         }
     }
 
-    pub fn request_reservation(&mut self, id: u32, dir: Direction, route: Route) -> bool {
+    pub fn request_reservation(
+        &mut self,
+        id:    u32,
+        dir:   Direction,
+        route: Route,
+    ) -> bool {
         if self.active.contains_key(&id) {
             return true;
         }
@@ -139,129 +144,124 @@ impl IntersectionManager {
 pub fn build_path_map() -> HashMap<(Direction, Route), Vec<Vec2>> {
     let mut map = HashMap::with_capacity(12);
 
-    // ── Direction::South  (spawn from south y=950, travel north) ─────────────
+    // ── South (spawn y=950, travel north) ───────────────────────────────────
+    // Northbound lanes: x=300 (Right), x=360 (Straight), x=420 (Left)
 
-    // Right → exits West at y=540
-    // Canonical shape (SDS §4.2): approach x=360, turn near SW corner, exit west
+    // Right turn → exits West at y=480 (innermost westbound lane)
     map.insert((Direction::South, Route::Right), vec![
-        Vec2 { x: 360.0, y: 950.0 },
-        Vec2 { x: 360.0, y: 600.0 },
-        Vec2 { x: 360.0, y: 570.0 }, // entering turn zone
-        Vec2 { x: 330.0, y: 540.0 }, // 45° diagonal
-        Vec2 { x: 300.0, y: 540.0 }, // west edge of intersection
-        Vec2 { x: -50.0, y: 540.0 },
+        Vec2 { x: 300.0, y: 950.0 },
+        Vec2 { x: 300.0, y: 630.0 },
+        Vec2 { x: 300.0, y: 510.0 }, // turn entry
+        Vec2 { x: 270.0, y: 480.0 }, // 45° diagonal → west edge
+        Vec2 { x: -50.0, y: 480.0 },
     ]);
 
-    // Straight → exits North at x=420
+    // Straight → exits North at x=360
     map.insert((Direction::South, Route::Straight), vec![
-        Vec2 { x: 420.0, y: 950.0 },
-        Vec2 { x: 420.0, y: 600.0 },
-        Vec2 { x: 420.0, y: 300.0 },
-        Vec2 { x: 420.0, y: -50.0 },
+        Vec2 { x: 360.0, y: 950.0 },
+        Vec2 { x: 360.0, y: 630.0 },
+        Vec2 { x: 360.0, y: 270.0 },
+        Vec2 { x: 360.0, y: -50.0 },
     ]);
 
-    // Left → exits East at y=360
-    // Travels north through intersection, turns near NE corner
+    // Left turn → exits East at y=300 (outermost eastbound lane)
     map.insert((Direction::South, Route::Left), vec![
-        Vec2 { x: 480.0, y: 950.0 },
-        Vec2 { x: 480.0, y: 600.0 },
-        Vec2 { x: 480.0, y: 390.0 }, // entering turn zone
-        Vec2 { x: 510.0, y: 360.0 }, // 45° diagonal
-        Vec2 { x: 600.0, y: 360.0 }, // east edge of intersection
-        Vec2 { x: 950.0, y: 360.0 },
+        Vec2 { x: 420.0, y: 950.0 },
+        Vec2 { x: 420.0, y: 630.0 },
+        Vec2 { x: 420.0, y: 330.0 }, // turn entry
+        Vec2 { x: 450.0, y: 300.0 }, // 45° diagonal
+        Vec2 { x: 630.0, y: 300.0 }, // east edge
+        Vec2 { x: 950.0, y: 300.0 },
     ]);
 
-    // ── Direction::North  (spawn from north y=-50, travel south) ─────────────
+    // ── North (spawn y=-50, travel south) ───────────────────────────────────
+    // Southbound lanes: x=600 (Right), x=540 (Straight), x=480 (Left)
 
-    // Right → exits East at y=360
+    // Right turn → exits East at y=420 (innermost eastbound lane)
     map.insert((Direction::North, Route::Right), vec![
+        Vec2 { x: 600.0, y: -50.0 },
+        Vec2 { x: 600.0, y: 270.0 },
+        Vec2 { x: 600.0, y: 390.0 }, // turn entry
+        Vec2 { x: 630.0, y: 420.0 }, // 45° diagonal → east edge
+        Vec2 { x: 950.0, y: 420.0 },
+    ]);
+
+    // Straight → exits South at x=540
+    map.insert((Direction::North, Route::Straight), vec![
         Vec2 { x: 540.0, y: -50.0 },
-        Vec2 { x: 540.0, y: 300.0 },
-        Vec2 { x: 540.0, y: 330.0 },
-        Vec2 { x: 570.0, y: 360.0 },
-        Vec2 { x: 600.0, y: 360.0 },
+        Vec2 { x: 540.0, y: 270.0 },
+        Vec2 { x: 540.0, y: 630.0 },
+        Vec2 { x: 540.0, y: 950.0 },
+    ]);
+
+    // Left turn → exits West at y=600 (outermost westbound lane)
+    map.insert((Direction::North, Route::Left), vec![
+        Vec2 { x: 480.0, y: -50.0 },
+        Vec2 { x: 480.0, y: 270.0 },
+        Vec2 { x: 480.0, y: 570.0 }, // turn entry
+        Vec2 { x: 450.0, y: 600.0 }, // 45° diagonal
+        Vec2 { x: 270.0, y: 600.0 }, // west edge
+        Vec2 { x: -50.0, y: 600.0 },
+    ]);
+
+    // ── West (spawn x=-50, travel east) ─────────────────────────────────────
+    // Eastbound lanes: y=300 (Right), y=360 (Straight), y=420 (Left)
+
+    // Right turn → exits North at x=420 (innermost northbound lane)
+    map.insert((Direction::West, Route::Right), vec![
+        Vec2 { x: -50.0, y: 300.0 },
+        Vec2 { x: 270.0, y: 300.0 },
+        Vec2 { x: 390.0, y: 300.0 }, // turn entry
+        Vec2 { x: 420.0, y: 270.0 }, // 45° diagonal → north edge
+        Vec2 { x: 420.0, y: -50.0 },
+    ]);
+
+    // Straight → exits East at y=360
+    map.insert((Direction::West, Route::Straight), vec![
+        Vec2 { x: -50.0, y: 360.0 },
+        Vec2 { x: 270.0, y: 360.0 },
+        Vec2 { x: 630.0, y: 360.0 },
         Vec2 { x: 950.0, y: 360.0 },
     ]);
 
-    // Straight → exits South at x=480
-    map.insert((Direction::North, Route::Straight), vec![
-        Vec2 { x: 480.0, y: -50.0 },
-        Vec2 { x: 480.0, y: 300.0 },
-        Vec2 { x: 480.0, y: 600.0 },
+    // Left turn → exits South at x=600 (outermost southbound lane)
+    map.insert((Direction::West, Route::Left), vec![
+        Vec2 { x: -50.0, y: 420.0 },
+        Vec2 { x: 270.0, y: 420.0 },
+        Vec2 { x: 570.0, y: 420.0 }, // turn entry
+        Vec2 { x: 600.0, y: 450.0 }, // 45° diagonal
+        Vec2 { x: 600.0, y: 630.0 }, // south edge
+        Vec2 { x: 600.0, y: 950.0 },
+    ]);
+
+    // ── East (spawn x=950, travel west) ─────────────────────────────────────
+    // Westbound lanes: y=600 (Right), y=540 (Straight), y=480 (Left)
+
+    // Right turn → exits South at x=480 (innermost southbound lane)
+    map.insert((Direction::East, Route::Right), vec![
+        Vec2 { x: 950.0, y: 600.0 },
+        Vec2 { x: 630.0, y: 600.0 },
+        Vec2 { x: 510.0, y: 600.0 }, // turn entry
+        Vec2 { x: 480.0, y: 630.0 }, // 45° diagonal → south edge
         Vec2 { x: 480.0, y: 950.0 },
     ]);
 
-    // Left → exits West at y=540
-    // Travels south through intersection, turns near SW corner
-    map.insert((Direction::North, Route::Left), vec![
-        Vec2 { x: 420.0, y: -50.0 },
-        Vec2 { x: 420.0, y: 300.0 },
-        Vec2 { x: 420.0, y: 510.0 },
-        Vec2 { x: 390.0, y: 540.0 },
-        Vec2 { x: 300.0, y: 540.0 },
+    // Straight → exits West at y=540
+    map.insert((Direction::East, Route::Straight), vec![
+        Vec2 { x: 950.0, y: 540.0 },
+        Vec2 { x: 630.0, y: 540.0 },
+        Vec2 { x: 270.0, y: 540.0 },
         Vec2 { x: -50.0, y: 540.0 },
     ]);
 
-    // ── Direction::West  (spawn from west x=-50, travel east) ────────────────
-
-    // Right → exits North at x=360
-    map.insert((Direction::West, Route::Right), vec![
-        Vec2 { x: -50.0, y: 360.0 },
-        Vec2 { x: 300.0, y: 360.0 },
-        Vec2 { x: 330.0, y: 360.0 },
-        Vec2 { x: 360.0, y: 330.0 },
-        Vec2 { x: 360.0, y: 300.0 },
-        Vec2 { x: 360.0, y: -50.0 },
-    ]);
-
-    // Straight → exits East at y=420
-    map.insert((Direction::West, Route::Straight), vec![
-        Vec2 { x: -50.0, y: 420.0 },
-        Vec2 { x: 300.0, y: 420.0 },
-        Vec2 { x: 600.0, y: 420.0 },
-        Vec2 { x: 950.0, y: 420.0 },
-    ]);
-
-    // Left → exits South at x=540
-    // Travels east through intersection, turns near SE corner
-    map.insert((Direction::West, Route::Left), vec![
-        Vec2 { x: -50.0, y: 480.0 },
-        Vec2 { x: 300.0, y: 480.0 },
-        Vec2 { x: 510.0, y: 480.0 },
-        Vec2 { x: 540.0, y: 510.0 },
-        Vec2 { x: 540.0, y: 600.0 },
-        Vec2 { x: 540.0, y: 950.0 },
-    ]);
-
-    // ── Direction::East  (spawn from east x=950, travel west) ────────────────
-
-    // Right → exits South at x=540
-    map.insert((Direction::East, Route::Right), vec![
-        Vec2 { x: 950.0, y: 540.0 },
-        Vec2 { x: 600.0, y: 540.0 },
-        Vec2 { x: 570.0, y: 540.0 },
-        Vec2 { x: 540.0, y: 570.0 },
-        Vec2 { x: 540.0, y: 600.0 },
-        Vec2 { x: 540.0, y: 950.0 },
-    ]);
-
-    // Straight → exits West at y=480
-    map.insert((Direction::East, Route::Straight), vec![
-        Vec2 { x: 950.0, y: 480.0 },
-        Vec2 { x: 600.0, y: 480.0 },
-        Vec2 { x: 300.0, y: 480.0 },
-        Vec2 { x: -50.0, y: 480.0 },
-    ]);
-
-    // Left → exits North at x=360
-    // Travels west through intersection, turns near NW corner
+    // Left turn → exits North at x=300 (outermost northbound lane)
     map.insert((Direction::East, Route::Left), vec![
-        Vec2 { x: 950.0, y: 420.0 },
-        Vec2 { x: 600.0, y: 420.0 },
-        Vec2 { x: 390.0, y: 420.0 },
-        Vec2 { x: 360.0, y: 390.0 },
-        Vec2 { x: 360.0, y: 300.0 },
-        Vec2 { x: 360.0, y: -50.0 },
+        Vec2 { x: 950.0, y: 480.0 },
+        Vec2 { x: 630.0, y: 480.0 },
+        Vec2 { x: 330.0, y: 480.0 }, // turn entry
+        Vec2 { x: 300.0, y: 450.0 }, // 45° diagonal
+        Vec2 { x: 300.0, y: 270.0 }, // north edge
+        Vec2 { x: 300.0, y: -50.0 },
     ]);
 
     map
@@ -417,7 +417,6 @@ mod tests {
     #[test]
     fn conflicting_request_denied() {
         let mut mgr = IntersectionManager::new();
-        // (N,St) and (S,L) both traverse x=480 inside the intersection
         assert!(mgr.request_reservation(1, Direction::North, Route::Straight));
         assert!(!mgr.request_reservation(2, Direction::South, Route::Left));
         assert_eq!(mgr.active_count(), 1);
@@ -444,10 +443,12 @@ mod tests {
     }
 
     #[test]
-    fn spec_confirmed_north_right_west_straight_no_conflict() {
+    fn spec_south_straight_north_right_no_conflict() {
+        // South-Straight occupies column 1 (x=360); North-Right occupies column 5
+        // (x=600 then exits east). Their intersection cells do not overlap.
         let mut mgr = IntersectionManager::new();
-        assert!(mgr.request_reservation(1, Direction::North, Route::Right));
-        assert!(mgr.request_reservation(2, Direction::West,  Route::Straight));
+        assert!(mgr.request_reservation(1, Direction::South, Route::Straight));
+        assert!(mgr.request_reservation(2, Direction::North, Route::Right));
         assert_eq!(mgr.active_count(), 2);
     }
 
@@ -455,7 +456,6 @@ mod tests {
     fn idempotent_re_request() {
         let mut mgr = IntersectionManager::new();
         assert!(mgr.request_reservation(1, Direction::North, Route::Straight));
-        // Same vehicle requests again (re-enters trigger zone after a deny loop)
         assert!(mgr.request_reservation(1, Direction::North, Route::Straight));
         assert_eq!(mgr.active_count(), 1);
     }

@@ -51,6 +51,7 @@ fn main() {
         min_time_ms: u64::MAX,
         close_calls: 0,
     };
+    let mut active_close_pairs: std::collections::HashSet<(u32, u32)> = std::collections::HashSet::new();
 
     let start_time = Instant::now();
     let mut prev_instant = Instant::now();
@@ -113,7 +114,7 @@ fn main() {
             alive
         });
 
-        stats::record_close_calls(&mut stats, &vehicles);
+        stats::record_close_calls(&mut stats, &vehicles, &mut active_close_pairs);
 
         if vehicles.len() != last_vehicle_count {
             println!("active vehicles: {}", vehicles.len());
