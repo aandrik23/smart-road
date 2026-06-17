@@ -55,34 +55,75 @@ untestable. If you feel you need to break a boundary, reconsider the design firs
 
 ## 3. The Intersection Algorithm — Critical Rules
 
-The intersection uses a **reservation-based model**, not traffic lights.
-This is intentional. Traffic lights are designed for human drivers.
-AVs negotiate entry cell-by-cell through a conflict table.
+The intersection uses a **time-window scheduling model**, not traffic lights and not
+a simple grant/deny reservation. Each vehicle is assigned a precise millisecond window
+`[scheduled_entry_ms, scheduled_exit_ms]` during which it will occupy the box.
+The scheduler computes the exact speed the vehicle must travel to arrive on time.
+
+### `compute_approach_speed` — the core function
+
+Lives in `intersection.rs`. Called **every frame** for every `Approaching` vehicle
+within `TRIGGER_DIST`. Returns `target_vel` as a continuous `f32`.
+
+```
+Step 1 — vehicle already has a booked slot:
+  remaining_ms = slot.scheduled_entry_ms - now_ms
+  if remaining_ms <= 0 → missed slot, re-book (go to Step 2, hold old slot until new one confirmed)
+  else → return clamp(dist / (remaining_ms / 1000), SPEED_SLOW, SPEED_FAST)
+  // Far away = fast. Close = slow. Speed is derived from geometry, not picked.
+
+Step 2 — no slot (or re-booking):
+  for speed in [SPEED_FAST, SPEED_MEDIUM, SPEED_SLOW]:
+    arrival_ms = now_ms + (dist / speed * 1000) as u64
+    exit_ms    = arrival_ms + (TRANSIT_LENGTH / speed * 1000) as u64
+    if NOT has_time_conflict(route, arrival_ms, exit_ms):
+      book slot, release old slot if re-booking
+      return speed   // exact named constant
+
+Step 3 — even SPEED_SLOW conflicts:
+  earliest_entry_ms = earliest ms after which no conflicting slot overlaps
+  gap_s  = (earliest_entry_ms - now_ms) / 1000.0
+  speed  = clamp(dist / gap_s, SPEED_SLOW, SPEED_FAST)
+  book slot with [earliest_entry_ms, earliest_entry_ms + transit_ms(speed)]
+  return speed   // continuous float, not a named constant
+```
 
 ### Reservation lifecycle
 ```
-Approaching (> TRIGGER_DIST) → request reservation
-  ├── GRANTED → target_vel = SPEED_MEDIUM, proceed
-  └── DENIED  → target_vel = SPEED_SLOW, hold at stop line
-InIntersection → hold reservation, traverse waypoints
-Exiting → release reservation immediately on last waypoint
-Removed → off-screen, stats recorded
+Approaching — spawns off-screen on a spawn_lane at SPEED_FAST.
+  Within TRIGGER_DIST → entry_time_ms = now, call compute_approach_speed every frame.
+  target_vel = min(compute_approach_speed(...), layer1_following_vel)
+InIntersection → hold slot, traverse at SPEED_MEDIUM.
+Exiting → on inc_lane of destination arm; release slot ONLY after last waypoint inside box is cleared.
+Removed → off-screen on inc_lane, exit_time_ms = now, stats recorded.
 ```
 
-**Never release a reservation before the vehicle has fully cleared the
-intersection box.** Early release is the most common source of phantom collisions.
+**Vehicles never stop.** Step 1 and Step 3 both clamp to `SPEED_SLOW` as the floor.
+`compute_approach_speed` never returns a value below `SPEED_SLOW`.
+
+**Re-booking rule:** always book the new slot before releasing the old one.
+Never create a gap where another vehicle can steal the window mid-rebooking.
+
+**Never release a slot before the vehicle has fully cleared the intersection box.**
+Early release is the most common source of phantom collisions.
+
+### `has_time_conflict(route, entry_ms, exit_ms) -> bool`
+
+Scans all active slots whose routes conflict with `route`. Returns `true` if any
+overlap: `NOT (exit_ms <= other.entry_ms OR entry_ms >= other.exit_ms)`.
 
 ### Conflict table
 Non-conflicting paths may proceed simultaneously (e.g. two perpendicular right turns).
-The conflict table is pre-computed at startup — do not evaluate conflicts dynamically
-per frame. If you modify routes or add lanes, regenerate the full conflict table.
+Pre-computed at startup — never evaluated dynamically per frame.
 
 ### Two independent safety layers — keep them separate
-1. **Reservation system** — prevents intersection-level collisions.
+1. **Scheduler (`compute_approach_speed`)** — prevents intersection-level collisions
+   by ensuring no two conflicting paths ever share a time window.
 2. **Same-lane following distance** — prevents rear-end collisions on approach roads.
+   Runs every frame regardless of scheduler state. Its output is `min`'d with the
+   scheduler's output — Layer 2 always wins when it produces a lower speed.
 
-These are not redundant. Do not merge them. The following-distance check runs
-every frame for every vehicle regardless of reservation state.
+Do not merge these. They solve different problems.
 
 ---
 
@@ -97,16 +138,20 @@ Every vehicle must always carry these live values (see `Vehicle` struct):
 
 ### Velocity levels
 There are exactly **3 named speeds**: `SPEED_SLOW`, `SPEED_MEDIUM`, `SPEED_FAST`.
-The smart intersection system controls `target_vel` by selecting one of these.
-Do not invent intermediate magic numbers. If a new speed level is needed,
-add it to `types.rs` as a named constant and update the `Speed` enum.
+These are used as **probe candidates** by `compute_approach_speed` in Step 2.
+`target_vel` is a continuous `f32` — it equals one of the three named constants
+when a named-speed window is available, or an exact computed float (`dist/gap_s`)
+in Step 1 and Step 3. Never invent other magic-number floats. Never set
+`target_vel` below `SPEED_SLOW`. If a new speed level is needed, add it to
+`types.rs` as a named constant and update the `Speed` enum.
 
 ### Accel/decel (bonus — but treat as core once implemented)
 ```
 velocity += ACCEL_RATE * dt   // if velocity < target_vel
 velocity -= DECEL_RATE * dt   // if velocity > target_vel
-velocity = clamp(velocity, 0.0, SPEED_FAST)
+velocity = clamp(velocity, SPEED_SLOW, SPEED_FAST)
 ```
+The lower bound is **`SPEED_SLOW`, not `0.0`** — vehicles never stop.
 Velocity must **never** snap instantly. If you see an instant speed change anywhere
 in the codebase, it is a bug. Different `VehicleKind` variants may have different
 `ACCEL_RATE`/`DECEL_RATE` — this is intentional and must be preserved.
@@ -163,7 +208,7 @@ being updated at each waypoint — that is the bug to fix.
 
 ## 7. Keyboard Input — Spawn Guard Is Mandatory
 
-When a key is held or spammed, vehicles must **not** be created on top of each other.
+When a key is pressed, vehicles must **not** be created on top of each other.
 
 Each direction tracks `last_spawn_time`. A vehicle is only spawned if:
 ```
@@ -177,15 +222,21 @@ or spawn positions, re-evaluate this constant.
 ### Key bindings — these are fixed by spec, do not reassign
 | Key | Spawns from | Direction |
 |---|---|---|
-| Arrow Up | South | → North |
-| Arrow Down | North | → South |
-| Arrow Right | West | → East |
-| Arrow Left | East | → West |
-| R | Random | Toggle continuous mode |
-| Esc | — | End simulation, show stats |
+| Arrow Up    | North | → South (N→S) |
+| Arrow Down  | South | → North (S→N) |
+| Arrow Right | West  | → East  (W→E) |
+| Arrow Left  | East  | → West  (E→W) |
+| R           | Random direction + random route | **One vehicle per press** |
+| Esc         | — | End simulation, show stats |
 
-The `R` key toggles a mode where random vehicles are generated each game loop tick,
-subject to the same spawn guard per direction.
+**`R` key — one vehicle per press, no continuous mode.** Each press of `R`
+picks a random direction from `{N→S, S→N, W→E, E→W}` and a random route
+from `{Right, Straight, Left}` for that direction, then spawns exactly one
+vehicle. It does NOT toggle any ongoing mode. The spawn guard still applies:
+if the chosen direction's `last_spawn_time` is too recent, nothing spawns.
+
+**Arrow keys** spawn one vehicle in the specified direction with a randomly
+chosen route (and therefore `spawn_lane`) for that direction.
 
 ---
 
@@ -246,9 +297,10 @@ produces false positives for vehicles on perpendicular lanes near the intersecti
 Filter by `direction` and confirm the candidate is ahead along the travel axis.
 
 ### Pitfall 6 — Spawning vehicles at the intersection edge
-Vehicles must spawn **off-screen** and drive into view. Spawning at the stop line
-or at the intersection edge skips the approach physics and breaks the stats
-timing window. Spawn coordinates must be outside the canvas bounds.
+Vehicles must spawn **off-screen** on the correct `spawn_lane` center for their
+direction+route, and drive into view. Spawning at the stop line or intersection
+edge skips approach physics and breaks the stats timing window. Spawn coordinates
+must be outside the canvas bounds.
 
 ### Pitfall 7 — Hardcoding routes instead of reading from the lane
 Each lane has exactly one route (`Right`, `Straight`, or `Left`). The vehicle
@@ -256,6 +308,19 @@ follows whatever route belongs to the lane it was spawned in. Route is assigned
 at spawn time from the lane definition — never randomly overridden mid-journey.
 When `R` key generates random vehicles, it randomises the lane (and thus the
 route), not the route independently.
+
+### Pitfall 8 — Calling `compute_approach_speed` only once
+`compute_approach_speed` must be called **every frame** while the vehicle is
+`Approaching` and within `TRIGGER_DIST`. Calling it once and caching the result
+means the vehicle never adjusts its speed as real time elapses and its distance
+changes. The whole point of Step 1 is continuous re-derivation: as `remaining_ms`
+shrinks, the computed speed updates accordingly.
+
+### Pitfall 9 — Releasing the old slot before booking the new one
+When a vehicle misses its scheduled entry time and must re-book, the sequence is:
+**book new slot first, then release old slot.** Reversing this order creates a
+race window where a vehicle on a conflicting route can grab the gap between
+release and re-book, producing a phantom collision at the box entry.
 
 ---
 
@@ -276,10 +341,35 @@ If a request or refactor pulls you toward any of the above, push back.
 - [ ] All new types and constants are in `types.rs`, nowhere else.
 - [ ] No module has gained a responsibility listed under another module in §2.
 - [ ] Vehicles still face their direction of travel through all waypoints.
-- [ ] Reservations are released only after full intersection clearance.
-- [ ] `entry_time_ms` is set at first algorithm detection, not at spawn or box entry.
+- [ ] Slots are released only after full intersection clearance (last waypoint **inside** the box — never early).
+- [ ] When re-booking a slot, the new slot is booked **before** the old one is released.
+- [ ] `compute_approach_speed` is called every frame while `Approaching` and within `TRIGGER_DIST`, not just once.
+- [ ] Layer 1 (safe-following-distance) is `min`'d with `compute_approach_speed` output — Layer 1 always wins when lower.
+- [ ] `entry_time_ms` is set at first algorithm detection (`TRIGGER_DIST`), not at spawn or box entry.
 - [ ] Spawn guard is intact — no two vehicles can overlap at spawn.
-- [ ] `SAFE_DISTANCE` is never zero and is enforced on approach roads.
+- [ ] All vehicles spawn off-screen on the correct `spawn_lane` center for their direction+route.
+- [ ] Exit waypoints always land on an `inc_lane` center — never on a `spawn_lane` coordinate.
+- [ ] `R` key spawns exactly one vehicle per press — no continuous mode, no toggle.
+- [ ] `SAFE_DISTANCE` is never zero and is enforced on approach and inc_lane roads.
 - [ ] `CLOSE_CALL_DIST` < `SAFE_DISTANCE` (it is a violation threshold, not a safe one).
 - [ ] Velocity changes are smooth (accel/decel), never instantaneous.
+- [ ] `velocity = clamp(velocity, SPEED_SLOW, SPEED_FAST)` — lower bound is `SPEED_SLOW`, not `0.0`.
+- [ ] No vehicle has `velocity` or `target_vel` set below `SPEED_SLOW` at any point.
+- [ ] Conflict table is pre-computed at startup, not evaluated dynamically per frame.
+- [ ] Waypoint paths are pre-computed at startup, not regenerated mid-simulation.
 - [ ] Stats are collected passively and displayed only on Esc, not mid-simulation.
+
+---
+
+## 12. Changelog
+
+### v3 (current — aligned with SDS v1.5)
+- **§3 lifecycle:** `spawn_lane` / `inc_lane` terminology added. Exiting state now notes vehicle is on `inc_lane` of destination arm.
+- **§7 key bindings:** Arrow directions corrected (↑=N→S, ↓=S→N). `R` key corrected: spawns exactly one vehicle per press with random direction+route — no continuous mode. "held or spammed" wording removed (R is a single-press action).
+- **§9 Pitfall 6:** Wording updated to reference `spawn_lane` center as the correct spawn position.
+
+### v2
+- §3 reservation lifecycle rewritten: DENIED no longer means stop. Entry at TRIGGER_DIST. Release after full box clearance.
+- §4 accel/decel clamp: `0.0` → `SPEED_SLOW`.
+- §9 Pitfall 8 + 9 added (per-frame scheduler call; re-booking order).
+- §11 checklist: off-screen spawn, SPEED_SLOW floor, conflict table pre-computed, waypoints pre-computed, scheduler-specific items.
