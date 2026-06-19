@@ -6,7 +6,14 @@ use crate::types::{
 
 pub struct IntersectionManager {
     conflicts: [[bool; 12]; 12],
+    /// Vehicles currently inside the intersection (hold a reservation).
     active:    HashMap<u32, (Direction, Route)>,
+    /// Vehicles waiting at the stop line, in arrival order.
+    waiting:   Vec<(u32, Direction, Route)>,
+    /// Path indices that are open for the current sequence.
+    /// Only paths in this set (or compatible with all paths in this set)
+    /// may receive a reservation during the current phase.
+    phase:     HashSet<usize>,
 }
 
 fn path_index(dir: Direction, route: Route) -> usize {
@@ -71,6 +78,8 @@ impl IntersectionManager {
         IntersectionManager {
             conflicts: build_conflict_table(),
             active:    HashMap::new(),
+            waiting:   Vec::new(),
+            phase:     HashSet::new(),
         }
     }
 
@@ -80,21 +89,96 @@ impl IntersectionManager {
         dir:   Direction,
         route: Route,
     ) -> bool {
+        // Already holds a slot — idempotent.
         if self.active.contains_key(&id) {
             return true;
         }
-        let req_idx = path_index(dir, route);
-        for (a_dir, a_route) in self.active.values() {
-            if self.conflicts[req_idx][path_index(*a_dir, *a_route)] {
-                return false;
+
+        // Register in the waiting queue on first sight.
+        if !self.waiting.iter().any(|(wid, _, _)| *wid == id) {
+            self.waiting.push((id, dir, route));
+        }
+
+        // When the intersection is clear and no phase is running, start one.
+        if self.active.is_empty() && self.phase.is_empty() {
+            self.begin_phase();
+        }
+
+        let idx = path_index(dir, route);
+
+        // Gate: vehicle's path must be part of the current phase.
+        // A compatible late-arrival may expand the phase.
+        if !self.phase.contains(&idx) {
+            let fits = self.phase.iter().all(|&p| !self.conflicts[p][idx]);
+            if fits {
+                self.phase.insert(idx);
+            } else {
+                return false; // incompatible — wait for the next sequence
             }
         }
+
+        // Final safety check: the phase may accumulate paths that became mutually
+        // incompatible as expand_phase() added entries during partial drains.
+        // Re-verify against active before actually granting the slot.
+        let no_active_conflict = self.active.values().all(|(ad, ar)| {
+            !self.conflicts[idx][path_index(*ad, *ar)]
+        });
+        if !no_active_conflict {
+            return false;
+        }
+
+        // Grant the reservation.
         self.active.insert(id, (dir, route));
+        self.waiting.retain(|(wid, _, _)| *wid != id);
         true
     }
 
     pub fn release_reservation(&mut self, id: u32) {
         self.active.remove(&id);
+        if self.active.is_empty() {
+            // Intersection fully cleared — end the current sequence and begin the next.
+            self.phase.clear();
+            if !self.waiting.is_empty() {
+                self.begin_phase();
+            }
+        } else {
+            // Intersection still has vehicles finishing their paths.
+            // Expand the phase to admit any waiting path that is now free of
+            // conflicts with the *remaining* active set, enabling pipelined entry.
+            self.expand_phase();
+        }
+    }
+
+    /// Greedy maximal independent set over the waiting queue (arrival order = priority).
+    /// Produces the largest set of mutually non-conflicting paths for the next sequence.
+    fn begin_phase(&mut self) {
+        let mut selected: Vec<usize> = Vec::new();
+        for (_, dir, route) in &self.waiting {
+            let idx = path_index(*dir, *route);
+            if selected.iter().all(|&s| !self.conflicts[s][idx]) {
+                selected.push(idx);
+            }
+        }
+        // HashSet deduplicates identical indices (multiple vehicles on the same path).
+        self.phase = selected.into_iter().collect();
+    }
+
+    /// Check every waiting path against what is *currently* active.
+    /// Any path that no longer conflicts gets added to the phase so its
+    /// vehicles can begin approaching without waiting for a full drain.
+    fn expand_phase(&mut self) {
+        for (_, dir, route) in &self.waiting {
+            let idx = path_index(*dir, *route);
+            if self.phase.contains(&idx) {
+                continue;
+            }
+            let compatible = self.active.values().all(|(ad, ar)| {
+                !self.conflicts[idx][path_index(*ad, *ar)]
+            });
+            if compatible {
+                self.phase.insert(idx);
+            }
+        }
     }
 
     pub fn is_in_trigger_zone(&self, vehicle: &Vehicle) -> bool {

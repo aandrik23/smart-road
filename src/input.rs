@@ -83,6 +83,15 @@ fn spawn_vehicle(
         return;
     };
 
+    // Hard cap: at most 5 vehicles per approach lane (direction + route).
+    let lane_count = vehicles
+        .iter()
+        .filter(|v| v.direction == direction && v.route == route)
+        .count();
+    if lane_count >= 5 {
+        return;
+    }
+
     // Don't spawn if the lane is backed up to the spawn point.
     let spawn = path[0];
     let blocked = vehicles.iter().any(|v| {

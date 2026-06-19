@@ -91,7 +91,17 @@ pub fn update(
         VehicleState::Approaching => {
             let in_trigger = manager.is_in_trigger_zone(vehicle);
             let in_box     = is_inside_intersection(vehicle.pos);
-            if in_trigger || in_box {
+            if in_box {
+                // Crossed the stop line — commit the slot and transition regardless.
+                if vehicle.entry_time_ms == 0 {
+                    vehicle.entry_time_ms = now_ms;
+                }
+                let _ = manager.request_reservation(
+                    vehicle.id, vehicle.direction, vehicle.route,
+                );
+                vehicle.target_vel = SPEED_MEDIUM;
+                vehicle.state = VehicleState::InIntersection;
+            } else if in_trigger {
                 if vehicle.entry_time_ms == 0 {
                     vehicle.entry_time_ms = now_ms;
                 }
@@ -100,14 +110,21 @@ pub fn update(
                 );
                 if granted {
                     vehicle.target_vel = SPEED_MEDIUM;
-                    if in_box {
-                        // Reservation confirmed and vehicle has crossed the stop line:
-                        // commit the state transition here rather than waiting for the
-                        // next frame so InIntersection is never entered without a slot.
-                        vehicle.state = VehicleState::InIntersection;
-                    }
                 } else {
-                    vehicle.target_vel = SPEED_SLOW;
+                    // Hold at stop line: set target to zero AND kinematically cap
+                    // velocity so the vehicle can always halt before the box edge,
+                    // even if it was already approaching at speed.
+                    vehicle.target_vel = 0.0;
+                    let dist_to_box = match vehicle.direction {
+                        Direction::South => (vehicle.pos.y - (INTER_Y + INTER_H)).max(0.0),
+                        Direction::North => (INTER_Y - vehicle.pos.y).max(0.0),
+                        Direction::West  => (INTER_X - vehicle.pos.x).max(0.0),
+                        Direction::East  => (vehicle.pos.x - (INTER_X + INTER_W)).max(0.0),
+                    };
+                    let v_limit = (2.0 * DECEL_RATE * dist_to_box.max(1.0)).sqrt();
+                    if vehicle.velocity > v_limit {
+                        vehicle.velocity = v_limit;
+                    }
                 }
             } else {
                 vehicle.target_vel = SPEED_FAST;
