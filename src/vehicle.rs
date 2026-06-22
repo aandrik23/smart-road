@@ -148,12 +148,17 @@ pub fn update(
         }
     }
 
-    // Safe-distance following: never close faster than SPEED_SLOW into the vehicle ahead.
+    // Safe-distance following: stop hard at SAFE_DISTANCE, slow earlier to avoid piling up.
     let gap = nearest_ahead(vehicle, all_vehicles);
-    let excess = (vehicle.velocity - SPEED_SLOW).max(0.0);
-    let brake_window = SAFE_DISTANCE + excess * excess / (2.0 * DECEL_RATE);
-    if gap < brake_window && vehicle.target_vel > SPEED_SLOW {
-        vehicle.target_vel = SPEED_SLOW;
+    if gap <= SAFE_DISTANCE {
+        vehicle.target_vel = 0.0;
+        vehicle.velocity = 0.0;
+    } else {
+        let excess = (vehicle.velocity - SPEED_SLOW).max(0.0);
+        let brake_window = SAFE_DISTANCE + excess * excess / (2.0 * DECEL_RATE);
+        if gap < brake_window && vehicle.target_vel > SPEED_SLOW {
+            vehicle.target_vel = SPEED_SLOW;
+        }
     }
 
     vehicle.state != VehicleState::Removed
