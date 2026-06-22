@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 #[allow(unused_imports)]
 use crate::types::{
-    Direction, Route, Vehicle, Vec2, VehicleState,
+    Direction, Route, Vehicle, VehicleType, Vec2, VehicleState,
     INTER_X, INTER_Y, INTER_W, INTER_H,
     SPEED_FAST, SPEED_MEDIUM, SPEED_SLOW, SAFE_DISTANCE, TRIGGER_DIST,
     ACCEL_RATE, DECEL_RATE,
@@ -65,7 +65,10 @@ pub fn update(
 
     // Waypoint advance
     if vehicle.path_index >= vehicle.path.len() {
-        manager.release_reservation(vehicle.id);
+        // Reservation was already released on the InIntersection→Exiting transition.
+        if vehicle.state != VehicleState::Exiting {
+            manager.release_reservation(vehicle.id);
+        }
         vehicle.state = VehicleState::Removed;
         return false;
     }
@@ -76,7 +79,9 @@ pub fn update(
     if dist <= 2.0 {
         vehicle.path_index += 1;
         if vehicle.path_index >= vehicle.path.len() {
-            manager.release_reservation(vehicle.id);
+            if vehicle.state != VehicleState::Exiting {
+                manager.release_reservation(vehicle.id);
+            }
             vehicle.state = VehicleState::Removed;
             return false;
         }
@@ -93,18 +98,12 @@ pub fn update(
             let in_box     = is_inside_intersection(vehicle.pos);
             if in_box {
                 // Crossed the stop line — commit the slot and transition regardless.
-                if vehicle.entry_time_ms == 0 {
-                    vehicle.entry_time_ms = now_ms;
-                }
                 let _ = manager.request_reservation(
                     vehicle.id, vehicle.direction, vehicle.route,
                 );
                 vehicle.target_vel = SPEED_MEDIUM;
                 vehicle.state = VehicleState::InIntersection;
             } else if in_trigger {
-                if vehicle.entry_time_ms == 0 {
-                    vehicle.entry_time_ms = now_ms;
-                }
                 let granted = manager.request_reservation(
                     vehicle.id, vehicle.direction, vehicle.route,
                 );
@@ -173,6 +172,7 @@ mod tests {
         let ndy = p1.y - p0.y;
         Vehicle {
             id,
+            vehicle_type: VehicleType::Civic,
             direction: dir,
             route,
             state: VehicleState::Approaching,
@@ -215,26 +215,20 @@ mod tests {
     }
 
     #[test]
-    fn entry_time_ms_set_at_trigger_zone_not_spawn() {
+    fn entry_time_ms_constant_through_lifecycle() {
+        // entry_time_ms is set at spawn (before update is ever called).
+        // Verify it never changes during the vehicle's entire lifecycle.
         let path_map = build_path_map();
         let mut mgr = IntersectionManager::new();
         let mut v = make_vehicle(1, Direction::South, Route::Straight);
-        assert_eq!(v.entry_time_ms, 0, "entry_time_ms must be 0 at spawn");
+        v.entry_time_ms = 42; // simulate spawn-time assignment
         let dt = 1.0_f32 / 60.0;
-        for frame in 1..=5_000u64 {
-            update(&mut v, dt, &path_map, &mut mgr, &[], frame);
-            // South trigger zone: pos.y ∈ (INTER_Y + INTER_H, INTER_Y + INTER_H + TRIGGER_DIST]
-            if v.pos.y <= INTER_Y + INTER_H + TRIGGER_DIST && v.pos.y > INTER_Y + INTER_H {
-                assert!(v.entry_time_ms > 0,
-                    "entry_time_ms must be set on first trigger zone frame");
-                let captured = v.entry_time_ms;
-                update(&mut v, dt, &path_map, &mut mgr, &[], frame + 1);
-                assert_eq!(v.entry_time_ms, captured,
-                    "entry_time_ms must not change once set");
-                return;
-            }
+        for frame in 1..=10_000u64 {
+            let alive = update(&mut v, dt, &path_map, &mut mgr, &[], frame);
+            assert_eq!(v.entry_time_ms, 42, "entry_time_ms must not change after spawn");
+            if !alive { return; }
         }
-        panic!("vehicle never entered trigger zone in 5 000 frames");
+        panic!("vehicle never completed in 10 000 frames");
     }
 
     #[test]

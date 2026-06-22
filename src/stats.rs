@@ -68,11 +68,12 @@ pub fn record_close_calls(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{Direction, Route, Vec2, VehicleState};
+    use crate::types::{Direction, Route, Vec2, VehicleState, VehicleType};
 
     fn make_vehicle(id: u32, x: f32, y: f32) -> Vehicle {
         Vehicle {
             id,
+            vehicle_type: VehicleType::Civic,
             direction: Direction::South,
             route: Route::Straight,
             state: VehicleState::Approaching,
@@ -132,26 +133,3 @@ mod tests {
     }
 }
 
-pub fn print_final(stats: &Stats) {
-    println!();
-    println!("========== SIMULATION STATS ==========");
-    println!("Vehicles passed: {}", stats.total_passed);
-    println!("Max velocity: {:.2}", stats.max_velocity);
-
-    if stats.min_velocity == f32::MAX {
-        println!("Min velocity: 0.00");
-    } else {
-        println!("Min velocity: {:.2}", stats.min_velocity);
-    }
-
-    println!("Max time: {} ms", stats.max_time_ms);
-
-    if stats.min_time_ms == u64::MAX {
-        println!("Min time: 0 ms");
-    } else {
-        println!("Min time: {} ms", stats.min_time_ms);
-    }
-
-    println!("Close calls: {}", stats.close_calls);
-    println!("======================================");
-}

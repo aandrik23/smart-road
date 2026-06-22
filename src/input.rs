@@ -4,13 +4,12 @@ use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 
 use crate::types::{
-    Direction, Route, Vehicle, VehicleState, Vec2,
+    Direction, Route, Vehicle, VehicleState, VehicleType, Vec2,
     SPEED_FAST, SPAWN_INTERVAL_MS, SAFE_DISTANCE,
 };
 
 #[derive(Debug, Clone)]
 pub struct InputState {
-    pub random_mode: bool,
     pub quit: bool,
     pub last_spawn: [u64; 4],
 }
@@ -18,7 +17,6 @@ pub struct InputState {
 impl InputState {
     pub fn new() -> Self {
         Self {
-            random_mode: false,
             quit: false,
             last_spawn: [0; 4],
         }
@@ -83,12 +81,18 @@ fn spawn_vehicle(
         return;
     };
 
-    // Hard cap: at most 5 vehicles per approach lane (direction + route).
+    // Hard cap: at most 4 vehicles queued on the approach road.
+    // Vehicles already in the intersection or exiting don't count — they're
+    // no longer occupying the lane and shouldn't block new spawns.
     let lane_count = vehicles
         .iter()
-        .filter(|v| v.direction == direction && v.route == route)
+        .filter(|v| {
+            v.direction == direction
+                && v.route == route
+                && v.state == VehicleState::Approaching
+        })
         .count();
-    if lane_count >= 5 {
+    if lane_count >= 3 {
         return;
     }
 
@@ -106,8 +110,20 @@ fn spawn_vehicle(
         return;
     }
 
+    let type_index = pseudo_random_index(
+        now_ms ^ ((*next_id as u64) << 8) ^ 0xBEEF,
+        4,
+    );
+    let vehicle_type = match type_index {
+        0 => VehicleType::Civic,
+        1 => VehicleType::Jeep,
+        2 => VehicleType::Sedan,
+        _ => VehicleType::Taxi,
+    };
+
     vehicles.push(Vehicle {
         id: *next_id,
+        vehicle_type,
         direction,
         route,
         state: VehicleState::Approaching,
@@ -117,7 +133,7 @@ fn spawn_vehicle(
         angle_deg: initial_angle(path),
         path: path.clone(),
         path_index: 1,
-        entry_time_ms: 0,
+        entry_time_ms: now_ms,
         exit_time_ms: 0,
         distance_travelled: 0.0,
     });
@@ -166,7 +182,14 @@ pub fn handle_events(
                 repeat: false,
                 ..
             } => {
-                input_state.random_mode = !input_state.random_mode;
+                let directions = [
+                    Direction::North,
+                    Direction::South,
+                    Direction::West,
+                    Direction::East,
+                ];
+                let index = pseudo_random_index(now_ms ^ ((*next_id as u64) << 16), directions.len());
+                try_spawn_vehicle(directions[index], input_state, vehicles, path_map, next_id, now_ms);
             }
 
             Event::KeyDown {
@@ -219,25 +242,5 @@ pub fn handle_events(
 
             _ => {}
         }
-    }
-
-    if input_state.random_mode {
-        let directions = [
-            Direction::North,
-            Direction::South,
-            Direction::West,
-            Direction::East,
-        ];
-
-        let index = pseudo_random_index(now_ms ^ ((*next_id as u64) << 16), directions.len());
-
-        try_spawn_vehicle(
-            directions[index],
-            input_state,
-            vehicles,
-            path_map,
-            next_id,
-            now_ms,
-        );
     }
 }

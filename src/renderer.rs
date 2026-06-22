@@ -6,9 +6,9 @@ use sdl2::video::{Window, WindowContext};
 
 use crate::intersection::IntersectionManager;
 use crate::types::{
-    Stats, Vehicle, Route,
+    Stats, Vehicle,
     INTER_X, INTER_Y, INTER_W, INTER_H,
-    SPRITE_W, SPRITE_H, FRAME_COUNT, FRAME_STRIDE,
+    SPRITE_W, SPRITE_H,
     WINDOW_WIDTH, WINDOW_HEIGHT,
 };
 
@@ -27,24 +27,50 @@ const DIGIT_FONT: [[u8; 5]; 10] = [
 ];
 
 pub struct VehicleTextures<'a> {
-    right:    Texture<'a>,
-    straight: Texture<'a>,
-    left:     Texture<'a>,
+    sheets: [Texture<'a>; 4],
 }
 
-fn make_colored_texture<'a>(tc: &'a TextureCreator<WindowContext>, color: Color) -> Texture<'a> {
-    let mut surface = Surface::new(SPRITE_W, SPRITE_H, PixelFormatEnum::RGB24)
-        .expect("surface creation failed");
-    surface.fill_rect(None, color).expect("surface fill failed");
-    tc.create_texture_from_surface(surface).expect("texture from surface failed")
+fn load_sheet<'a>(tc: &'a TextureCreator<WindowContext>, path: &str) -> Texture<'a> {
+    let img = image::open(path)
+        .unwrap_or_else(|_| panic!("failed to load {path}"))
+        .into_rgba8();
+    let (w, h) = img.dimensions();
+    let mut pixels = img.into_raw();
+    // ABGR8888 interprets memory as R,G,B,A on little-endian x86, matching image's RGBA output.
+    let surface = Surface::from_data(&mut pixels, w, h, w * 4, PixelFormatEnum::ABGR8888)
+        .expect("surface from data");
+    tc.create_texture_from_surface(&surface).expect("texture from surface")
 }
 
 pub fn create_vehicle_textures<'a>(tc: &'a TextureCreator<WindowContext>) -> VehicleTextures<'a> {
     VehicleTextures {
-        right:    make_colored_texture(tc, Color::RGB(0, 220, 0)),
-        straight: make_colored_texture(tc, Color::RGB(220, 220, 0)),
-        left:     make_colored_texture(tc, Color::RGB(220, 40, 40)),
+        sheets: [
+            load_sheet(tc, "assets/CIVIC_CLEAN_8D_000-sheet.png"),
+            load_sheet(tc, "assets/JEEP_CLEAN_8D_000-sheet.png"),
+            load_sheet(tc, "assets/SEDAN_CLEAN_8D_000-sheet.png"),
+            load_sheet(tc, "assets/TAXI_CLEAN_8D0000-sheet.png"),
+        ],
     }
+}
+
+// Each sheet is 300×300 with 8 sprites in a 3×3 grid (100×100 each, last cell empty).
+// Layout: row0 = E, SE, S  |  row1 = SW, W, NW  |  row2 = N, NE, (empty)
+// angle_deg follows atan2(dy, dx): 0=East, 90=South, ±180=West, -90=North.
+fn angle_to_src_rect(angle_deg: f64) -> Rect {
+    let norm = ((angle_deg % 360.0) + 360.0) % 360.0;
+    let index = ((norm + 22.5) / 45.0) as u32 % 8;
+    let (col, row): (u32, u32) = match index {
+        0 => (0, 0), // East
+        1 => (1, 0), // Southeast
+        2 => (2, 0), // South
+        3 => (0, 1), // Southwest
+        4 => (1, 1), // West
+        5 => (2, 1), // Northwest
+        6 => (0, 2), // North
+        7 => (1, 2), // Northeast
+        _ => (0, 0),
+    };
+    Rect::new((col * 100) as i32, (row * 100) as i32, 100, 100)
 }
 
 fn draw_dashed_vertical(canvas: &mut Canvas<Window>, x: i32, y1: i32, y2: i32) {
@@ -110,6 +136,7 @@ fn glyph_for(ch: char) -> Option<[u8; 5]> {
         'M' => Some([0b101, 0b111, 0b101, 0b101, 0b101]),
         'N' => Some([0b101, 0b110, 0b101, 0b101, 0b101]),
         'O' => Some([0b111, 0b101, 0b101, 0b101, 0b111]),
+        'P' => Some([0b111, 0b101, 0b111, 0b100, 0b100]),
         'S' => Some([0b111, 0b100, 0b111, 0b001, 0b111]),
         'T' => Some([0b111, 0b010, 0b010, 0b010, 0b010]),
         'V' => Some([0b101, 0b101, 0b101, 0b101, 0b010]),
@@ -208,7 +235,7 @@ pub fn draw_stats_overlay(canvas: &mut Canvas<Window>, stats: &Stats) {
     ly += LH;
 
     canvas.set_draw_color(Color::RGB(255, 80, 80));
-    draw_str(canvas, "CLOSE     :", lx, ly, SC);
+    draw_str(canvas, "CLOSE CALL:", lx, ly, SC);
     draw_number(canvas, stats.close_calls, vx, ly, SC);
     ly += LH * 2;
 
@@ -270,25 +297,17 @@ pub fn draw(
     canvas.fill_rect(Rect::new(INTER_X as i32 - 5, INTER_Y as i32, 5, INTER_H as u32)).ok();
     canvas.fill_rect(Rect::new((INTER_X + INTER_W) as i32, INTER_Y as i32, 5, INTER_H as u32)).ok();
 
-    // 5. Vehicles — copy_ex with angle_deg rotation and frame animation
+    // 5. Vehicles — directional sprite selected by angle_deg, no rotation needed
     for vehicle in vehicles {
-        let frame_x =
-            (vehicle.distance_travelled as u32 / FRAME_STRIDE % FRAME_COUNT) * SPRITE_W;
-        let src_rect = Rect::new(frame_x as i32, 0, SPRITE_W, SPRITE_H);
+        let src_rect = angle_to_src_rect(vehicle.angle_deg);
         let dst_rect = Rect::new(
             vehicle.pos.x as i32 - SPRITE_W as i32 / 2,
             vehicle.pos.y as i32 - SPRITE_H as i32 / 2,
             SPRITE_W,
             SPRITE_H,
         );
-        let texture = match vehicle.route {
-            Route::Right    => &textures.right,
-            Route::Straight => &textures.straight,
-            Route::Left     => &textures.left,
-        };
-        canvas
-            .copy_ex(texture, src_rect, dst_rect, vehicle.angle_deg, None, false, false)
-            .ok();
+        let sheet = &textures.sheets[vehicle.vehicle_type as usize];
+        canvas.copy(sheet, src_rect, dst_rect).ok();
     }
 
     // 6. HUD — top-left corner

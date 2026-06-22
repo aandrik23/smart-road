@@ -163,19 +163,20 @@ impl IntersectionManager {
         self.phase = selected.into_iter().collect();
     }
 
-    /// Check every waiting path against what is *currently* active.
-    /// Any path that no longer conflicts gets added to the phase so its
-    /// vehicles can begin approaching without waiting for a full drain.
+    /// Check every waiting path against what is *currently* active AND against
+    /// existing phase members. Both must be conflict-free before a path is
+    /// admitted, so the phase set always stays internally consistent.
     fn expand_phase(&mut self) {
         for (_, dir, route) in &self.waiting {
             let idx = path_index(*dir, *route);
             if self.phase.contains(&idx) {
                 continue;
             }
-            let compatible = self.active.values().all(|(ad, ar)| {
+            let no_active_conflict = self.active.values().all(|(ad, ar)| {
                 !self.conflicts[idx][path_index(*ad, *ar)]
             });
-            if compatible {
+            let no_phase_conflict = self.phase.iter().all(|&p| !self.conflicts[p][idx]);
+            if no_active_conflict && no_phase_conflict {
                 self.phase.insert(idx);
             }
         }
@@ -361,6 +362,7 @@ mod tests {
     fn make_vehicle(dir: Direction, x: f32, y: f32) -> Vehicle {
         Vehicle {
             id: 99,
+            vehicle_type: VehicleType::Civic,
             direction: dir,
             route: Route::Straight,
             state: VehicleState::Approaching,

@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 mod types;
 mod intersection;
 mod vehicle;

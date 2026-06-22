@@ -1,4 +1,12 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum VehicleType {
+    Civic = 0,
+    Jeep  = 1,
+    Sedan = 2,
+    Taxi  = 3,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Direction {
     North,
     South,
@@ -21,13 +29,6 @@ pub enum VehicleState {
     Removed,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Speed {
-    Slow,
-    Medium,
-    Fast,
-}
-
 #[derive(Debug, Clone, Copy)]
 pub struct Vec2 {
     pub x: f32,
@@ -37,6 +38,7 @@ pub struct Vec2 {
 #[derive(Debug, Clone)]
 pub struct Vehicle {
     pub id: u32,
+    pub vehicle_type: VehicleType,
     pub direction: Direction,
     pub route: Route,
     pub state: VehicleState,
@@ -52,12 +54,6 @@ pub struct Vehicle {
 }
 
 #[derive(Debug, Clone)]
-pub struct IntersectionSlot {
-    pub reserved_by: Option<u32>,
-    pub route: Option<Route>,
-}
-
-#[derive(Debug, Clone)]
 pub struct Stats {
     pub total_passed: u32,
     pub max_velocity: f32,
@@ -67,35 +63,24 @@ pub struct Stats {
     pub close_calls: u32,
 }
 
-#[derive(Debug, Clone)]
-pub struct InputState {
-    pub random_mode: bool,
-    pub quit: bool,
-    pub last_spawn: [u64; 4],
-}
-
-
 pub const WINDOW_WIDTH: u32 = 900;
 pub const WINDOW_HEIGHT: u32 = 900;
 pub const LANE_WIDTH: f32 = 60.0;
-pub const TILE_SIZE: u32 = 60;
 pub const INTER_X: f32 = 270.0;
 pub const INTER_Y: f32 = 270.0;
 pub const INTER_W: f32 = 360.0;
 pub const INTER_H: f32 = 360.0;
 pub const SPEED_SLOW: f32 = 40.0;
-pub const SPEED_MEDIUM: f32 = 100.0;
+pub const SPEED_MEDIUM: f32 = 140.0;
 pub const SPEED_FAST: f32 = 180.0;
-pub const SAFE_DISTANCE: f32 = 80.0;
+pub const SAFE_DISTANCE: f32 = 110.0;
 pub const CLOSE_CALL_DIST: f32 = 30.0;
 pub const SPAWN_INTERVAL_MS: u64 = 800;
 pub const ACCEL_RATE:         f32 = 150.0;
 pub const DECEL_RATE:         f32 = 120.0;
 pub const TRIGGER_DIST:       f32 = 200.0;
-pub const SPRITE_W:           u32 = 20;
-pub const SPRITE_H:           u32 = 12;
-pub const FRAME_COUNT:        u32 = 1;
-pub const FRAME_STRIDE:       u32 = 1;
+pub const SPRITE_W:           u32 = 56;
+pub const SPRITE_H:           u32 = 56;
 
 // CLOSE_CALL_DIST (30.0) < SAFE_DISTANCE (80.0) — violation threshold is smaller than safe gap
 const _: () = assert!(
