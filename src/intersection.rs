@@ -6,13 +6,13 @@ use crate::types::{
 
 pub struct IntersectionManager {
     conflicts: [[bool; 12]; 12],
-    /// Vehicles currently inside the intersection (hold a reservation).
-    active:    HashMap<u32, (Direction, Route)>,
+    /// Rasterized intersection cells for each of the 12 paths (indexed by path_index).
+    cell_sets: Vec<HashSet<(u8, u8)>>,
+    /// Vehicles currently inside the intersection: (direction, route, current position).
+    active:    HashMap<u32, (Direction, Route, Vec2)>,
     /// Vehicles waiting at the stop line, in arrival order.
     waiting:   Vec<(u32, Direction, Route)>,
     /// Path indices that are open for the current sequence.
-    /// Only paths in this set (or compatible with all paths in this set)
-    /// may receive a reservation during the current phase.
     phase:     HashSet<usize>,
 }
 
@@ -50,17 +50,19 @@ fn rasterize_segment(a: Vec2, b: Vec2, cells: &mut HashSet<(u8, u8)>) {
     }
 }
 
-fn build_conflict_table() -> [[bool; 12]; 12] {
+fn build_path_cells() -> Vec<HashSet<(u8, u8)>> {
     let path_map = build_path_map();
     let mut cell_sets: Vec<HashSet<(u8, u8)>> = (0..12).map(|_| HashSet::new()).collect();
-
     for ((dir, route), path) in &path_map {
         let idx = path_index(*dir, *route);
         for segment in path.windows(2) {
             rasterize_segment(segment[0], segment[1], &mut cell_sets[idx]);
         }
     }
+    cell_sets
+}
 
+fn build_conflict_table(cell_sets: &[HashSet<(u8, u8)>]) -> [[bool; 12]; 12] {
     let mut conflicts = [[false; 12]; 12];
     for i in 0..12 {
         for j in (i + 1)..12 {
@@ -73,13 +75,39 @@ fn build_conflict_table() -> [[bool; 12]; 12] {
     conflicts
 }
 
+/// Returns true when the vehicle at `pos` traveling in `dir` has already moved
+/// past every cell in `cells` — meaning it no longer occupies the conflict zone.
+fn active_has_cleared(pos: Vec2, dir: Direction, cells: &HashSet<(u8, u8)>) -> bool {
+    cells.iter().all(|&(col, row)| match dir {
+        // South travels north (y decreasing): past a cell when above its top edge.
+        Direction::South => pos.y < INTER_Y + row as f32 * LANE_WIDTH,
+        // North travels south (y increasing): past a cell when below its bottom edge.
+        Direction::North => pos.y > INTER_Y + (row as f32 + 1.0) * LANE_WIDTH,
+        // West travels east (x increasing): past a cell when right of its right edge.
+        Direction::West  => pos.x > INTER_X + (col as f32 + 1.0) * LANE_WIDTH,
+        // East travels west (x decreasing): past a cell when left of its left edge.
+        Direction::East  => pos.x < INTER_X + col as f32 * LANE_WIDTH,
+    })
+}
+
 impl IntersectionManager {
     pub fn new() -> Self {
+        let cell_sets = build_path_cells();
+        let conflicts = build_conflict_table(&cell_sets);
         IntersectionManager {
-            conflicts: build_conflict_table(),
-            active:    HashMap::new(),
-            waiting:   Vec::new(),
-            phase:     HashSet::new(),
+            conflicts,
+            cell_sets,
+            active:  HashMap::new(),
+            waiting: Vec::new(),
+            phase:   HashSet::new(),
+        }
+    }
+
+    /// Call every frame for any vehicle that holds a reservation, so the
+    /// positional conflict check always sees up-to-date positions.
+    pub fn update_active_position(&mut self, id: u32, pos: Vec2) {
+        if let Some(entry) = self.active.get_mut(&id) {
+            entry.2 = pos;
         }
     }
 
@@ -88,13 +116,37 @@ impl IntersectionManager {
         id:    u32,
         dir:   Direction,
         route: Route,
+        pos:   Vec2,
     ) -> bool {
-        // Already holds a slot — idempotent.
-        if self.active.contains_key(&id) {
+        // Already holds a slot — update position and return.
+        if let Some(entry) = self.active.get_mut(&id) {
+            entry.2 = pos;
             return true;
         }
 
-        // Register in the waiting queue on first sight.
+        let idx = path_index(dir, route);
+
+        // Fast path: check if all active vehicles have either a non-conflicting path
+        // or have already cleared the cells where their routes cross ours.
+        // Waiting vehicles are at the stop line — not a collision risk.
+        // Sequential frame processing keeps it safe: the first of two conflicting
+        // arrivals is inserted into `active`, so the second sees it and is denied.
+        let no_active_conflict = self.active.values().all(|(ad, ar, apos)| {
+            let aidx = path_index(*ad, *ar);
+            if !self.conflicts[idx][aidx] { return true; }
+            let conflict_cells: HashSet<(u8, u8)> = self.cell_sets[idx]
+                .intersection(&self.cell_sets[aidx])
+                .copied()
+                .collect();
+            active_has_cleared(*apos, *ad, &conflict_cells)
+        });
+        if no_active_conflict {
+            self.active.insert(id, (dir, route, pos));
+            self.waiting.retain(|(wid, _, _)| *wid != id);
+            return true;
+        }
+
+        // Conflicting case — register in the waiting queue on first sight.
         if !self.waiting.iter().any(|(wid, _, _)| *wid == id) {
             self.waiting.push((id, dir, route));
         }
@@ -104,31 +156,30 @@ impl IntersectionManager {
             self.begin_phase();
         }
 
-        let idx = path_index(dir, route);
-
         // Gate: vehicle's path must be part of the current phase.
-        // A compatible late-arrival may expand the phase.
         if !self.phase.contains(&idx) {
             let fits = self.phase.iter().all(|&p| !self.conflicts[p][idx]);
             if fits {
                 self.phase.insert(idx);
             } else {
-                return false; // incompatible — wait for the next sequence
+                return false;
             }
         }
 
-        // Final safety check: the phase may accumulate paths that became mutually
-        // incompatible as expand_phase() added entries during partial drains.
-        // Re-verify against active before actually granting the slot.
-        let no_active_conflict = self.active.values().all(|(ad, ar)| {
-            !self.conflicts[idx][path_index(*ad, *ar)]
+        // Re-verify positionally against active before granting.
+        let still_blocked = self.active.values().any(|(ad, ar, apos)| {
+            let aidx = path_index(*ad, *ar);
+            if !self.conflicts[idx][aidx] { return false; }
+            let conflict_cells: HashSet<(u8, u8)> = self.cell_sets[idx]
+                .intersection(&self.cell_sets[aidx])
+                .copied()
+                .collect();
+            !active_has_cleared(*apos, *ad, &conflict_cells)
         });
-        if !no_active_conflict {
-            return false;
-        }
+        if still_blocked { return false; }
 
         // Grant the reservation.
-        self.active.insert(id, (dir, route));
+        self.active.insert(id, (dir, route, pos));
         self.waiting.retain(|(wid, _, _)| *wid != id);
         true
     }
@@ -172,7 +223,7 @@ impl IntersectionManager {
             if self.phase.contains(&idx) {
                 continue;
             }
-            let no_active_conflict = self.active.values().all(|(ad, ar)| {
+            let no_active_conflict = self.active.values().all(|(ad, ar, _)| {
                 !self.conflicts[idx][path_index(*ad, *ar)]
             });
             let no_phase_conflict = self.phase.iter().all(|&p| !self.conflicts[p][idx]);
@@ -357,7 +408,18 @@ pub fn build_path_map() -> HashMap<(Direction, Route), Vec<Vec2>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::VehicleState;
+    use crate::types::{VehicleState, VehicleType};
+
+    /// Returns a position in the approach zone (outside the intersection, before
+    /// any conflict cells are reached) so tests exercise path-level logic only.
+    fn approach_pos(dir: Direction) -> Vec2 {
+        match dir {
+            Direction::North => Vec2 { x: 540.0, y:  50.0 },
+            Direction::South => Vec2 { x: 360.0, y: 850.0 },
+            Direction::West  => Vec2 { x:  50.0, y: 360.0 },
+            Direction::East  => Vec2 { x: 850.0, y: 540.0 },
+        }
+    }
 
     fn make_vehicle(dir: Direction, x: f32, y: f32) -> Vehicle {
         Vehicle {
@@ -493,36 +555,36 @@ mod tests {
     #[test]
     fn all_four_right_turns_non_conflicting() {
         let mut mgr = IntersectionManager::new();
-        assert!(mgr.request_reservation(1, Direction::North, Route::Right));
-        assert!(mgr.request_reservation(2, Direction::South, Route::Right));
-        assert!(mgr.request_reservation(3, Direction::West,  Route::Right));
-        assert!(mgr.request_reservation(4, Direction::East,  Route::Right));
+        assert!(mgr.request_reservation(1, Direction::North, Route::Right, approach_pos(Direction::North)));
+        assert!(mgr.request_reservation(2, Direction::South, Route::Right, approach_pos(Direction::South)));
+        assert!(mgr.request_reservation(3, Direction::West,  Route::Right, approach_pos(Direction::West)));
+        assert!(mgr.request_reservation(4, Direction::East,  Route::Right, approach_pos(Direction::East)));
         assert_eq!(mgr.active_count(), 4);
     }
 
     #[test]
     fn conflicting_request_denied() {
         let mut mgr = IntersectionManager::new();
-        assert!(mgr.request_reservation(1, Direction::North, Route::Straight));
-        assert!(!mgr.request_reservation(2, Direction::South, Route::Left));
+        assert!(mgr.request_reservation(1, Direction::North, Route::Straight, approach_pos(Direction::North)));
+        assert!(!mgr.request_reservation(2, Direction::South, Route::Left, approach_pos(Direction::South)));
         assert_eq!(mgr.active_count(), 1);
     }
 
     #[test]
     fn release_frees_slot() {
         let mut mgr = IntersectionManager::new();
-        assert!(mgr.request_reservation(1, Direction::North, Route::Straight));
+        assert!(mgr.request_reservation(1, Direction::North, Route::Straight, approach_pos(Direction::North)));
         mgr.release_reservation(1);
-        assert!(mgr.request_reservation(2, Direction::South, Route::Left));
+        assert!(mgr.request_reservation(2, Direction::South, Route::Left, approach_pos(Direction::South)));
         assert_eq!(mgr.active_count(), 1);
     }
 
     #[test]
     fn active_count_tracks_grants_and_releases() {
         let mut mgr = IntersectionManager::new();
-        mgr.request_reservation(1, Direction::North, Route::Right);
-        mgr.request_reservation(2, Direction::South, Route::Right);
-        mgr.request_reservation(3, Direction::West,  Route::Right);
+        mgr.request_reservation(1, Direction::North, Route::Right, approach_pos(Direction::North));
+        mgr.request_reservation(2, Direction::South, Route::Right, approach_pos(Direction::South));
+        mgr.request_reservation(3, Direction::West,  Route::Right, approach_pos(Direction::West));
         assert_eq!(mgr.active_count(), 3);
         mgr.release_reservation(2);
         assert_eq!(mgr.active_count(), 2);
@@ -533,16 +595,16 @@ mod tests {
         // South-Straight occupies column 1 (x=360); North-Right occupies column 5
         // (x=600 then exits east). Their intersection cells do not overlap.
         let mut mgr = IntersectionManager::new();
-        assert!(mgr.request_reservation(1, Direction::South, Route::Straight));
-        assert!(mgr.request_reservation(2, Direction::North, Route::Right));
+        assert!(mgr.request_reservation(1, Direction::South, Route::Straight, approach_pos(Direction::South)));
+        assert!(mgr.request_reservation(2, Direction::North, Route::Right,    approach_pos(Direction::North)));
         assert_eq!(mgr.active_count(), 2);
     }
 
     #[test]
     fn idempotent_re_request() {
         let mut mgr = IntersectionManager::new();
-        assert!(mgr.request_reservation(1, Direction::North, Route::Straight));
-        assert!(mgr.request_reservation(1, Direction::North, Route::Straight));
+        assert!(mgr.request_reservation(1, Direction::North, Route::Straight, approach_pos(Direction::North)));
+        assert!(mgr.request_reservation(1, Direction::North, Route::Straight, approach_pos(Direction::North)));
         assert_eq!(mgr.active_count(), 1);
     }
 

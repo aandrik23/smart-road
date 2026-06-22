@@ -96,10 +96,12 @@ fn spawn_vehicle(
         return;
     }
 
-    // Don't spawn if the lane is backed up to the spawn point.
+    // Don't spawn if any vehicle from the same direction is within SAFE_DISTANCE
+    // of the spawn point.  Checking same-direction (any route) prevents two cars
+    // on adjacent lanes (60 px apart) from being spawned simultaneously.
     let spawn = path[0];
     let blocked = vehicles.iter().any(|v| {
-        if v.direction != direction || v.route != route {
+        if v.direction != direction {
             return false;
         }
         let dx = v.pos.x - spawn.x;

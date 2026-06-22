@@ -99,13 +99,13 @@ pub fn update(
             if in_box {
                 // Crossed the stop line — commit the slot and transition regardless.
                 let _ = manager.request_reservation(
-                    vehicle.id, vehicle.direction, vehicle.route,
+                    vehicle.id, vehicle.direction, vehicle.route, vehicle.pos,
                 );
                 vehicle.target_vel = SPEED_MEDIUM;
                 vehicle.state = VehicleState::InIntersection;
             } else if in_trigger {
                 let granted = manager.request_reservation(
-                    vehicle.id, vehicle.direction, vehicle.route,
+                    vehicle.id, vehicle.direction, vehicle.route, vehicle.pos,
                 );
                 if granted {
                     vehicle.target_vel = SPEED_MEDIUM;
@@ -130,6 +130,7 @@ pub fn update(
             }
         }
         VehicleState::InIntersection => {
+            manager.update_active_position(vehicle.id, vehicle.pos);
             vehicle.target_vel = SPEED_MEDIUM;
             if !is_inside_intersection(vehicle.pos) {
                 if vehicle.exit_time_ms == 0 {
